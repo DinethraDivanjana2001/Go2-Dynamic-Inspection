@@ -1,0 +1,19 @@
+Calibration results 
+====================
+Camera-system parameters:
+cam0 (/image_cropped):
+    type: <class 'aslam_cv.libaslam_cv_python.DistortedOmniCameraGeometry'>
+    distortion: [-0.85307661  0.21024355 -0.12122319  0.10198985] +- []
+    projection: [   0.52717059 1281.55871351 1216.7077925   376.35000972  389.01947083] +- []
+
+
+Target configuration
+====================
+
+  Type: checkerboard
+  Rows
+    Count: 7
+    Distance: 0.08 [m]
+  Cols
+    Count: 6
+    Distance: 0.08 [m]

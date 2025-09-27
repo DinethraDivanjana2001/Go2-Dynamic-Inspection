@@ -1,0 +1,31 @@
+camera_name: insta360_front
+image_width: 1280
+image_height: 360
+
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [541.7427, 0.0, 515.2440,
+         0.0, 593.7827, 308.1585,
+         0.0, 0.0, 1.0]
+
+distortion_model: radtan
+distortion_coefficients:
+  rows: 1
+  cols: 4
+  data: [-0.5807, 0.0379, -0.1026, 0.1428]
+
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0,
+         0.0, 1.0, 0.0,
+         0.0, 0.0, 1.0]
+
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [541.7427, 0.0, 515.2440, 0.0,
+         0.0, 593.7827, 308.1585, 0.0,
+         0.0, 0.0, 1.0, 0.0]
+

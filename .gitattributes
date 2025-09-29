@@ -1,0 +1,5 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+*.pt !text !filter !merge !diff
+*.zip !text !filter !merge !diff
+*.whl !text !filter !merge !diff

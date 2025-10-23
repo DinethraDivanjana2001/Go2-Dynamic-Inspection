@@ -49,7 +49,7 @@ params.submap.max_num_points = 7500000
 params.submap.submaps_num_scan_overlap = 1
 
 --MAP_BUILDER
-params.map_builder.map_voxel_size = 0.4
+params.map_builder.map_voxel_size = 0.1
 params.map_builder.scan_cropping.cropping_radius_max = 60.0
 params.map_builder.scan_cropping.cropping_radius_min = 0.5
 params.map_builder.space_carving.carve_space_every_n_scans = 10

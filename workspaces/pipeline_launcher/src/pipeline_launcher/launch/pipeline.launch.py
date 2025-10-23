@@ -79,8 +79,8 @@ def generate_launch_description():
     
     return LaunchDescription([
         # fast_lio_launch,
-        # dlio_launch,
+        dlio_launch,
         vehicle_simulator_launch,
         far_planner_launch,
-        open3d_slam_launch,
+        # open3d_slam_launch,
     ])

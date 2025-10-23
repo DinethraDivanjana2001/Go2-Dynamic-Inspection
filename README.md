@@ -29,14 +29,98 @@ far_planner_workspace/
 ### Workspace Components:
 
 #### 1. `workspaces/autonomous_exploration/`
-- Contains the autonomous exploration and mapping framework
-- Includes LOAM interface, local planner, terrain analysis, and vehicle simulation
-- Provides sensor scan generation and visualization tools
+
+- **What it is:** The mid-layer autonomous exploration & mapping framework.
+  - Modules: **LOAM interface**, **local planner**, **terrain analysis**, **vehicle simulation**, **sensor-scan generation**, and RViz visualization tools.
+  - **Not included:** ❗️**No state estimator** here. This package does **not** compute odometry/SLAM by itself.
+
+- **How odometry is obtained**
+  - **Simulation (garage world):** The `vehicle_simulator` node acts as an oracle and publishes:
+    - `/state_estimation` (`nav_msgs/Odometry`, frame: `map → sensor`) at high rate
+    - `/registered_scan` (`sensor_msgs/PointCloud2`, already in `map`) at scan rate
+    - matching `/tf` transforms
+    - ➜ RViz (Fixed Frame = `map`) shows data immediately; no SLAM required.
+  - **Real robot / bag playback:** You must run an external **LIO/LOAM state estimator** (e.g., FAST-LIO2, LIO-SAM, LOAM-Livox). This repo’s **`loam_interface`** then **adapts** the estimator outputs into the topics the stack expects.
+    - Expected estimator outputs (examples):
+      - Odometry in `map`: `/Odometry` or `/lio_sam/mapping/odometry` (`nav_msgs/Odometry`)
+      - Registered cloud in `map`: `/cloud_registered` or `/lio_sam/mapping/cloud_registered` (`PointCloud2`)
+    - `loam_interface` republishes them as:
+      - `/state_estimation` (odom in `map`)
+      - `/registered_scan` (cloud in `map`)
+      - and consistent `/tf`
+    - ⚠️ `loam_interface` **does not** compute odometry from raw LiDAR; it only **bridges/renames** topics and fixes frame conventions.
+
+- **Key topics & frames**
+  - **Inputs (real robot):** estimator odom (`map → sensor`), estimator registered cloud (`map`)
+  - **Core outputs:** `/state_estimation`, `/registered_scan`, `/tf`
+  - **Frames:** global `map`; sensor frame typically `sensor` (or your LiDAR frame, e.g., `livox_frame`); an auxiliary `sensor_at_scan` may be used for scan-aligned outputs.
+  - **RViz:** Fixed Frame must be `map`.
+
+- **Configuration (`loam_interface`)**
+  - Set these params to match your estimator:
+    ```yaml
+    stateEstimationTopic: /Odometry                      # or /lio_sam/mapping/odometry
+    registeredScanTopic:  /cloud_registered              # or /lio_sam/mapping/cloud_registered
+    mapFrame:             map
+    sensorFrame:          livox_frame                    # change to your actual sensor frame
+    # flip/reverse flags are available if axes appear inverted
+    ```
+  - Avoid TF conflicts: if your estimator also publishes a `map → sensor` TF with identical names, don’t double-publish.
+
+- **Typical launches**
+  - **Simulation (garage):**
+    ```bash
+    ros2 launch vehicle_simulator system_garage.launch.py
+    ```
+  - **Real robot (mid-layer only):**
+    ```bash
+    ros2 launch vehicle_simulator system_real_robot.launch.py
+    # In parallel: run your LIO/LOAM estimator that subscribes to your LiDAR (+IMU) and publishes odom + registered cloud
+    ```
+  - **Bag playback tips:** use sim time and clock
+    ```bash
+    ros2 param set /rviz2 use_sim_time true
+    ros2 bag play your.bag --clock
+    ```
+
+- **Sensor scan generation**
+  - Provides scan-timestamped versions of the data:
+    - `/sensor_scan` (PointCloud2 in `sensor_at_scan`)
+    - `/state_estimation_at_scan` (odom `map → sensor_at_scan`)
+    - matching `/tf`
+
+- **Troubleshooting (RViz blank)**
+  - Check that `/state_estimation` and `/registered_scan` are publishing (`ros2 topic hz ...`).
+  - Verify a live TF chain `map → … → <sensor frame>` (`ros2 run tf2_tools view_frames`).
+  - For raw LiDAR preview only, add a PointCloud2 display for your raw topic and set RViz QoS to **Reliable/Volatile**; note this is **not** used by the planner without odom + registration.
+
+
 
 #### 2. `workspaces/far_planner/`
-- Core FAR (Fast and Assured Reachability) planner implementation
+- Core FAR (Fast, Attemptable Route Planner for Navigation in Known and Unknown Environments) planner implementation
 - Includes boundary handling, graph decoding, and visibility graph processing
 - Contains RViz plugins for goal point selection and teleop control
+
+- **What it is:** Core **FAR (Fast & Assured Reachability)** **global planner**.
+  - Algorithms: boundary handling, graph decoding, visibility-graph–style planning.
+  - Tooling: RViz plugins for **goal selection** and **teleop** to quickly test paths.
+
+- **Inputs (expected)**
+  - A **global frame** (usually `map`) with a consistent TF tree.
+  - An **obstacle/traversability representation** (from terrain analysis or your mapping stack).
+  - A **goal** (from the RViz goal plugin or a topic).
+  - The robot’s **current pose** (through TF / odometry).
+
+- **Outputs**
+  - A **global path** (e.g., `nav_msgs/Path`) and associated planner markers for RViz.
+  - Optional intermediate **waypoints** depending on config.
+
+---
+
+##### Configuration (real robot vs. simulation)
+
+When running on a **real robot**, update this YAML to match your stack (frames, topics, robot size, map source). 
+
 
 #### 3. `workspaces/pipeline_launcher/`
 - Orchestrates the complete system launch sequence
@@ -94,12 +178,12 @@ If you need to rebuild any component:
 ```bash
 # Build autonomous exploration workspace
 cd workspaces/autonomous_exploration
-colcon build
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.sh
 
 # Build far planner workspace
 cd ../far_planner  
-colcon build
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.sh
 
 # Build pipeline launcher workspace

@@ -32,7 +32,7 @@ def generate_launch_description():
     use_sim_time_arg = DeclareLaunchArgument('use_sim_time', default_value='true')
     play_delay_arg = DeclareLaunchArgument('play_delay', default_value='0.4')
     play_rate_arg = DeclareLaunchArgument('play_rate', default_value='1.0')
-    bag_filename_arg = DeclareLaunchArgument('bag_filename', default_value='rosbag_004')
+    bag_filename_arg = DeclareLaunchArgument('bag_filename', default_value='rosbag_00')
     bag_folder_path_arg = DeclareLaunchArgument('bag_folder_path', default_value=open3d_slam_ros_path + '/data/')
 
     launch_prefix = LaunchConfiguration('launch_prefix')

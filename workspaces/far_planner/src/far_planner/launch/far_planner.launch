@@ -34,6 +34,22 @@ def generate_launch_description():
             ]
         ),
         
+        # Waypoint to Cmd_Vel converter
+        Node(
+            package='far_planner',
+            executable='waypoint_to_cmd_vel',
+            name='waypoint_to_cmd_vel',
+            output='screen',
+            parameters=[
+                {'max_linear_speed': 0.5},
+                {'max_angular_speed': 1.0},
+                {'linear_kp': 1.0},
+                {'angular_kp': 2.0},
+                {'goal_tolerance': 0.3},
+                {'angle_tolerance': 0.1}
+            ]
+        ),
+        
         Node(
             package='rviz2',
             executable='rviz2',

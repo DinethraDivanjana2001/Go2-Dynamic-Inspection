@@ -70,7 +70,11 @@ ament_target_dependencies(${PROJECT_NAME} rclcpp std_msgs std_srvs sensor_msgs n
 
 target_link_libraries(${PROJECT_NAME} ${PCL_LIBRARIES} ${OpenCV_LIBS})
 
-install(TARGETS ${PROJECT_NAME} DESTINATION lib/${PROJECT_NAME})
+# Waypoint to Cmd_Vel converter
+add_executable(waypoint_to_cmd_vel src/waypoint_to_cmd_vel.cpp)
+ament_target_dependencies(waypoint_to_cmd_vel rclcpp geometry_msgs nav_msgs tf2 tf2_ros)
+
+install(TARGETS ${PROJECT_NAME} waypoint_to_cmd_vel DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 

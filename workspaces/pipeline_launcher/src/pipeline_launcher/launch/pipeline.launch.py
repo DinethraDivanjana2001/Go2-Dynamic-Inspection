@@ -68,10 +68,10 @@ def generate_launch_description():
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource([
-                    FindPackageShare('open3d_slam_ros'), '/launch/mapping_rosbag.launch.py'
+                    FindPackageShare('open3d_slam_ros'), '/launch/open3d_launch.py'
                 ]),
                 launch_arguments={
-                    'use_sim_time': 'false'
+                    'use_sim_time': 'true'
                 }.items()
             )
         ]
@@ -79,8 +79,8 @@ def generate_launch_description():
     
     return LaunchDescription([
         # fast_lio_launch,
-        # dlio_launch,
-        vehicle_simulator_launch,
-        far_planner_launch,
+        dlio_launch,
+        # vehicle_simulator_launch,
+        # far_planner_launch,
         open3d_slam_launch,
     ])

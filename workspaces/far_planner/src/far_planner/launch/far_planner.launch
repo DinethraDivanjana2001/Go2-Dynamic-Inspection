@@ -41,7 +41,7 @@ def generate_launch_description():
             name='waypoint_to_cmd_vel',
             output='screen',
             parameters=[
-                {'max_linear_speed': 0.5},
+                {'max_linear_speed': 1.0},
                 {'max_angular_speed': 1.0},
                 {'linear_kp': 1.0},
                 {'angular_kp': 2.0},

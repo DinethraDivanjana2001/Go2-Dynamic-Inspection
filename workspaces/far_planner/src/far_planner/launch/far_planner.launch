@@ -47,7 +47,7 @@ def generate_launch_description():
                 {'min_angular_speed': 0.2},
                 {'linear_kp': 0.8},
                 {'angular_kp': 3.0},
-                {'goal_tolerance': 0.5},  # Increased from 0.3 to avoid premature stopping
+                {'goal_tolerance': 0.2},  # Increased from 0.3 to avoid premature stopping
                 {'angle_tolerance': 0.5},
                 {'rotate_in_place_threshold': 1.57},
                 {'stuck_timeout': 5.0},  # Increased from 3.0

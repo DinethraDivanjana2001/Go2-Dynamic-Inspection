@@ -70,6 +70,7 @@ def generate_launch_description():
         parameters=[dlio_yaml_path, dlio_params_yaml_path],
         remappings=[
             ('keyframes', 'dlio/odom_node/pointcloud/keyframe'),
+            ('odom', 'dlio_map_cloud'),
         ],
     )
 

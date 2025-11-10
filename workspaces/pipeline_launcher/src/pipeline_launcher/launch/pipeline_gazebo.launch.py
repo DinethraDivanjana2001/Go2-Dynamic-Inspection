@@ -3,6 +3,7 @@ from launch.actions import IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.substitutions import FindPackageShare
 import os
+from launch.launch_description_sources import FrontendLaunchDescriptionSource  # Add this import
 
 
 def generate_launch_description():
@@ -14,19 +15,8 @@ def generate_launch_description():
     """
     
     # Find package paths
-    fast_lio_pkg = FindPackageShare('fast_lio')
     vehicle_simulator_pkg = FindPackageShare('vehicle_simulator')
     far_planner_pkg = FindPackageShare('far_planner')
-    
-    # Launch fast_lio mapping immediately (with RViz disabled)
-    fast_lio_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([
-            fast_lio_pkg, '/launch/mapping_mid360.launch.py'
-        ]),
-        launch_arguments={
-            'rviz': 'false'
-        }.items()
-    )
     
     # Launch vehicle_simulator after 3 seconds
     vehicle_simulator_launch = TimerAction(
@@ -64,6 +54,13 @@ def generate_launch_description():
         ]
     )
 
+    # Foxglove Bridge launch (starts immediately)
+    foxglove_bridge_launch = IncludeLaunchDescription(
+        FrontendLaunchDescriptionSource([
+            FindPackageShare('foxglove_bridge'), '/launch/foxglove_bridge_launch.xml'
+        ])
+    )
+
     # Launch open3d_slam mapping after 6 seconds total (3 more after vehicle_simulator)
     open3d_slam_launch = TimerAction(
         period=6.0,
@@ -82,9 +79,9 @@ def generate_launch_description():
     )
     
     return LaunchDescription([
-        # fast_lio_launch,
         dlio_launch,
         vehicle_simulator_launch,
         far_planner_launch,
         open3d_slam_launch,
+        foxglove_bridge_launch,
     ])

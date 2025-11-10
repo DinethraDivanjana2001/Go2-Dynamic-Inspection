@@ -45,3 +45,6 @@ cmake_install.cmake
 Makefile
 
 /rosbags
+
+frames_*.gv
+frames_*.pdf

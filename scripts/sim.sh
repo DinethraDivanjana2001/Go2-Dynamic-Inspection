@@ -14,10 +14,6 @@ source ~/Documents/Far_planner_test/workspaces/autonomous_exploration/install/se
 echo "Sourcing far_planner workspace setup..."
 source ~/Documents/Far_planner_test/workspaces/far_planner/install/setup.sh
 
-# Source the fastlio2 workspace
-echo "Sourcing fastlio2 workspace setup..."
-source ~/Documents/Far_planner_test/workspaces/fastlio2/install/setup.sh
-
 # Source the dlio workspace 
 echo "Sourcing dlio workspace setup..."
 source ~/Documents/Far_planner_test/workspaces/dlio/install/setup.sh
@@ -41,7 +37,7 @@ echo ""
 
 # Launch the pipeline
 # ros2 launch go2_config gazebo_velodyne.launch.py &
-ros2 launch go2_config gazebo_velodyne.launch.py world:=/home/yasiru/simple_env_1.world
+ros2 launch go2_config gazebo_velodyne.launch.py world:=/home/yasiru/world.world &
 ros2 launch pipeline_launcher pipeline_gazebo.launch.py &
 
 

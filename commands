@@ -13,3 +13,8 @@ sudo apt install ninja-build
 colcon build --symlink-install \
   --cmake-args -DCMAKE_BUILD_TYPE=Release -G Ninja \
   --parallel-workers 2
+
+pkill -9 -f ros2
+pkill -9 -f gazebo
+pkill -9 -f gzserver
+pkill -9 -f gzclient

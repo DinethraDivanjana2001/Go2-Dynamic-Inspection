@@ -40,6 +40,7 @@ echo "  T=6s: far_planner starts"
 echo ""
 
 # Launch the pipeline
+ros2 launch go2_config gazebo_velodyne.launch.py &
 ros2 launch pipeline_launcher pipeline_gazebo.launch.py &
 # ros2 bag play ~/Documents/rosbags/rosbag_003 &
 

@@ -3,6 +3,14 @@
 # Pipeline Launch Script
 # This script sources the required setup files and launches the complete pipeline
 
+echo "=== Simulation Launch Script ==="
+echo "Sourcing required setup files..."
+
+# Source the autonomous exploration workspace
+echo "Sourcing autonomous_exploration workspace setup..."
+source ~/Documents/unitree_sim_ws/install/setup.sh
+
+
 echo "=== Pipeline Launch Script ==="
 echo "Sourcing required setup files..."
 
@@ -40,6 +48,7 @@ echo "  T=6s: far_planner starts"
 echo ""
 
 # Launch the pipeline
+ros2 launch go2_config gazebo_velodyne.launch.py &
 ros2 launch pipeline_launcher pipeline.launch.py &
 ros2 bag play ~/Documents/rosbags/rosbag_003 &
 

@@ -62,6 +62,16 @@ NanoGICP<PointSource, PointTarget>::NanoGICP() {
   corr_dist_threshold_ = std::numeric_limits<float>::max();
 
   regularization_method_ = RegularizationMethod::PLANE;
+  
+  // Initialize GPU Accelerator
+  gpu_accelerator_ = std::make_shared<GpuAccelerator>();
+  use_gpu_ = gpu_accelerator_->initialize();
+  
+  if (use_gpu_) {
+    std::cout << "[NanoGICP] GPU acceleration ENABLED (RTX 2060)" << std::endl;
+  } else {
+    std::cout << "[NanoGICP] GPU acceleration DISABLED - using CPU fallback" << std::endl;
+  }
 }
 
 template <typename PointSource, typename PointTarget>
@@ -334,6 +344,19 @@ bool NanoGICP<PointSource, PointTarget>::calculate_covariances(
   float& density) {
 
   covariances.resize(cloud->size());
+  
+  // Try GPU acceleration first
+  if (use_gpu_ && gpu_accelerator_) {
+    bool gpu_success = gpu_accelerator_->calculateCovariances<PointT>(
+      cloud, k_correspondences_, covariances, density
+    );
+    
+    if (gpu_success) {
+      return true;  // GPU calculation succeeded
+    }
+    // If GPU fails, fall through to CPU implementation
+    std::cerr << "[NanoGICP] GPU covariance calculation failed, using CPU fallback" << std::endl;
+  }
   float sum_k_sq_distances = 0.0;
 
 #pragma omp parallel for num_threads(num_threads_) schedule(guided, 8) reduction(+:sum_k_sq_distances)

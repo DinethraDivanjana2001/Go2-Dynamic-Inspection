@@ -2,9 +2,10 @@
  * CUDA-Accelerated GICP Implementation
  ***********************************************************/
 
+#include <cfloat>
 #include "nano_gicp/cuda/cuda_gicp.cuh"
 #include "nano_gicp/cuda/cuda_transform.cuh"
-#include <cfloat>
+#include <Eigen/Core>
 
 namespace nano_gicp {
 namespace cuda {
@@ -380,7 +381,8 @@ void CudaGICP::updateCorrespondences(
     allocateMemory(num_source, num_target);
     
     // Convert and copy points
-    std::vector<GpuPoint> h_source(num_source), h_target(num_target);
+    GpuPoint* h_source = new GpuPoint[num_source];
+    GpuPoint* h_target = new GpuPoint[num_target];
     for (int i = 0; i < num_source; i++) {
         h_source[i].x = source_points[i * 3 + 0];
         h_source[i].y = source_points[i * 3 + 1];
@@ -394,9 +396,9 @@ void CudaGICP::updateCorrespondences(
         h_target[i].w = 1.0f;
     }
     
-    CUDA_CHECK(cudaMemcpy(d_source_points_, h_source.data(),
+    CUDA_CHECK(cudaMemcpy(d_source_points_, h_source,
                          num_source * sizeof(GpuPoint), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_target_points_, h_target.data(),
+    CUDA_CHECK(cudaMemcpy(d_target_points_, h_target,
                          num_target * sizeof(GpuPoint), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_source_covs_, source_covs,
                          num_source * sizeof(GpuMatrix4), cudaMemcpyHostToDevice));
@@ -406,7 +408,7 @@ void CudaGICP::updateCorrespondences(
                          cudaMemcpyHostToDevice));
     
     // Use KNN search to find nearest neighbors for transformed source points
-    std::vector<float> transformed_source(num_source * 3);
+    float* transformed_source = new float[num_source * 3];
     for (int i = 0; i < num_source; i++) {
         GpuPoint pt = transformPoint(h_source[i], transform);
         transformed_source[i * 3 + 0] = pt.x;
@@ -414,28 +416,28 @@ void CudaGICP::updateCorrespondences(
         transformed_source[i * 3 + 2] = pt.z;
     }
     
-    std::vector<float> target_flat(num_target * 3);
+    float* target_flat = new float[num_target * 3];
     for (int i = 0; i < num_target; i++) {
         target_flat[i * 3 + 0] = h_target[i].x;
         target_flat[i * 3 + 1] = h_target[i].y;
         target_flat[i * 3 + 2] = h_target[i].z;
     }
     
-    knn_search_.setTargetCloud(target_flat.data(), num_target);
+    knn_search_.setTargetCloud(target_flat, num_target);
     
-    std::vector<int> knn_indices(num_source);
-    std::vector<float> knn_sq_dists(num_source);
-    knn_search_.batchKnnSearch(transformed_source.data(), num_source, 1,
-                              knn_indices.data(), knn_sq_dists.data());
+    int* knn_indices = new int[num_source];
+    float* knn_sq_dists = new float[num_source];
+    knn_search_.batchKnnSearch(transformed_source, num_source, 1,
+                              knn_indices, knn_sq_dists);
     
     // Copy KNN results to GPU
     int* d_knn_indices;
     float* d_knn_sq_dists;
     CUDA_CHECK(cudaMalloc(&d_knn_indices, num_source * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_knn_sq_dists, num_source * sizeof(float)));
-    CUDA_CHECK(cudaMemcpy(d_knn_indices, knn_indices.data(),
+    CUDA_CHECK(cudaMemcpy(d_knn_indices, knn_indices,
                          num_source * sizeof(int), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_knn_sq_dists, knn_sq_dists.data(),
+    CUDA_CHECK(cudaMemcpy(d_knn_sq_dists, knn_sq_dists,
                          num_source * sizeof(float), cudaMemcpyHostToDevice));
     
     // Launch kernel
@@ -465,6 +467,12 @@ void CudaGICP::updateCorrespondences(
                          num_source * sizeof(GpuMatrix4), cudaMemcpyDeviceToHost));
     
     // Cleanup
+    delete[] h_source;
+    delete[] h_target;
+    delete[] transformed_source;
+    delete[] target_flat;
+    delete[] knn_indices;
+    delete[] knn_sq_dists;
     CUDA_CHECK(cudaFree(d_knn_indices));
     CUDA_CHECK(cudaFree(d_knn_sq_dists));
 }
@@ -475,8 +483,8 @@ double CudaGICP::computeLinearization(
     const int* correspondences,
     const GpuMatrix4* mahalanobis,
     const float* transform,
-    Eigen::Matrix<double, 6, 6>& H,
-    Eigen::Matrix<double, 6, 1>& b) {
+    double* H_data,
+    double* b_data) {
     
     // Copy data to GPU (points should already be there from updateCorrespondences)
     CUDA_CHECK(cudaMemcpy(d_correspondences_, correspondences,
@@ -508,38 +516,43 @@ double CudaGICP::computeLinearization(
     CUDA_CHECK(cudaDeviceSynchronize());
     
     // Copy results back and reduce
-    std::vector<double> h_H_blocks(num_source * 36);
-    std::vector<double> h_b_blocks(num_source * 6);
-    std::vector<double> h_errors(num_source);
+    double* h_H_blocks = new double[num_source * 36];
+    double* h_b_blocks = new double[num_source * 6];
+    double* h_errors = new double[num_source];
     
-    CUDA_CHECK(cudaMemcpy(h_H_blocks.data(), d_H_blocks_,
+    CUDA_CHECK(cudaMemcpy(h_H_blocks, d_H_blocks_,
                          num_source * 36 * sizeof(double), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_b_blocks.data(), d_b_blocks_,
+    CUDA_CHECK(cudaMemcpy(h_b_blocks, d_b_blocks_,
                          num_source * 6 * sizeof(double), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_errors.data(), d_errors_,
+    CUDA_CHECK(cudaMemcpy(h_errors, d_errors_,
                          num_source * sizeof(double), cudaMemcpyDeviceToHost));
     
     // Reduce H matrices and b vectors
-    H.setZero();
-    b.setZero();
+    for (int i = 0; i < 36; i++) H_data[i] = 0.0;
+    for (int i = 0; i < 6; i++) b_data[i] = 0.0;
     double total_error = 0.0;
     
     for (int i = 0; i < num_source; i++) {
         // Add H contribution
         for (int row = 0; row < 6; row++) {
             for (int col = 0; col < 6; col++) {
-                H(row, col) += h_H_blocks[i * 36 + row * 6 + col];
+                H_data[row * 6 + col] += h_H_blocks[i * 36 + row * 6 + col];
             }
         }
         
         // Add b contribution
         for (int row = 0; row < 6; row++) {
-            b(row) += h_b_blocks[i * 6 + row];
+            b_data[row] += h_b_blocks[i * 6 + row];
         }
         
         // Add error contribution
         total_error += h_errors[i];
     }
+    
+    // Cleanup
+    delete[] h_H_blocks;
+    delete[] h_b_blocks;
+    delete[] h_errors;
     
     return total_error;
 }
@@ -574,14 +587,16 @@ double CudaGICP::computeError(
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
     
-    std::vector<double> h_errors(num_source);
-    CUDA_CHECK(cudaMemcpy(h_errors.data(), d_errors_,
+    double* h_errors = new double[num_source];
+    CUDA_CHECK(cudaMemcpy(h_errors, d_errors_,
                          num_source * sizeof(double), cudaMemcpyDeviceToHost));
     
     double total_error = 0.0;
     for (int i = 0; i < num_source; i++) {
         total_error += h_errors[i];
     }
+    
+    delete[] h_errors;
     
     return total_error;
 }

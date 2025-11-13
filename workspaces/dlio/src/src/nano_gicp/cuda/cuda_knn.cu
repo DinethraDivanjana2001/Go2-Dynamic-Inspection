@@ -142,7 +142,7 @@ void CudaKNNSearch::setTargetCloud(const float* points, int num_points) {
     CUDA_CHECK(cudaMalloc(&d_target_points_, bytes));
     
     // Convert and copy points (assuming input is [x,y,z,x,y,z,...])
-    std::vector<GpuPoint> h_points(num_points);
+    GpuPoint* h_points = new GpuPoint[num_points];
     for (int i = 0; i < num_points; i++) {
         h_points[i].x = points[i * 3 + 0];
         h_points[i].y = points[i * 3 + 1];
@@ -150,7 +150,8 @@ void CudaKNNSearch::setTargetCloud(const float* points, int num_points) {
         h_points[i].w = 1.0f;
     }
     
-    CUDA_CHECK(cudaMemcpy(d_target_points_, h_points.data(), bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_target_points_, h_points, bytes, cudaMemcpyHostToDevice));
+    delete[] h_points;
 }
 
 void CudaKNNSearch::allocateMemory(int max_queries, int k) {
@@ -185,7 +186,7 @@ void CudaKNNSearch::batchKnnSearch(const float* query_points, int num_queries, i
     allocateMemory(num_queries, k);
     
     // Convert and copy query points to GPU
-    std::vector<GpuPoint> h_queries(num_queries);
+    GpuPoint* h_queries = new GpuPoint[num_queries];
     for (int i = 0; i < num_queries; i++) {
         h_queries[i].x = query_points[i * 3 + 0];
         h_queries[i].y = query_points[i * 3 + 1];
@@ -193,8 +194,9 @@ void CudaKNNSearch::batchKnnSearch(const float* query_points, int num_queries, i
         h_queries[i].w = 1.0f;
     }
     
-    CUDA_CHECK(cudaMemcpy(d_query_points_, h_queries.data(), 
+    CUDA_CHECK(cudaMemcpy(d_query_points_, h_queries, 
                          num_queries * sizeof(GpuPoint), cudaMemcpyHostToDevice));
+    delete[] h_queries;
     
     // Launch kernel
     const int THREADS_PER_BLOCK = 256; // Optimized for RTX 2060

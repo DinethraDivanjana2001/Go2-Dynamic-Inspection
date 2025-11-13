@@ -17,6 +17,7 @@ source ~/Documents/Far_planner_test/workspaces/far_planner/install/setup.sh
 # Source the dlio workspace 
 echo "Sourcing dlio workspace setup..."
 source ~/Documents/Far_planner_test/workspaces/dlio/install/setup.sh
+source ~/Documents/Far_planner_test/workspaces/dlio/setup_cuda12.sh
 
 echo "Sourcing open3d slam workspace setup..."
 source ~/Documents/Far_planner_test/workspaces/open3d_slam_ws/install/setup.sh

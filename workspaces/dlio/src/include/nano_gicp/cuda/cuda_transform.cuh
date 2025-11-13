@@ -48,7 +48,7 @@ __global__ void batchTransformPointsKernel(GpuPoint* points, int num_points,
                                           const int* point_to_transform_map);
 
 // Device helper for matrix-vector multiplication
-__device__ inline GpuPoint transformPoint(const GpuPoint& p, const float* T) {
+__device__ __host__ inline GpuPoint transformPoint(const GpuPoint& p, const float* T) {
     GpuPoint result;
     result.x = T[0] * p.x + T[1] * p.y + T[2]  * p.z + T[3];
     result.y = T[4] * p.x + T[5] * p.y + T[6]  * p.z + T[7];

@@ -33,10 +33,14 @@ find_package(CUDA REQUIRED)
 
 set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD 14)
 
 # CUDA architecture for RTX 2060 (Turing - compute capability 7.5)
 set(CMAKE_CUDA_ARCHITECTURES 75)
+
+# CUDA compilation flags
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr --extended-lambda")
+set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3 --use_fast_math")
 
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
 set(THREADS_PREFER_PTHREAD_FLAG TRUE)
@@ -75,13 +79,14 @@ set_target_properties(cuda_modules PROPERTIES
   CUDA_SEPARABLE_COMPILATION ON
   CUDA_RESOLVE_DEVICE_SYMBOLS ON
   POSITION_INDEPENDENT_CODE ON
+  CUDA_STANDARD 14
+)
+target_include_directories(cuda_modules PRIVATE 
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${PCL_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIR}
 )
 target_link_libraries(cuda_modules ${CUDA_LIBRARIES} ${PCL_LIBRARIES})
-target_compile_options(cuda_modules PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
-  --expt-relaxed-constexpr
-  --use_fast_math
-  -O3
-  >)
 
 # NanoGICP
 add_library(nano_gicp STATIC

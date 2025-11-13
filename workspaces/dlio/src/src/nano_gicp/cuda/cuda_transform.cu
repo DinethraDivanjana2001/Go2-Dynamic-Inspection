@@ -3,7 +3,6 @@
  ***********************************************************/
 
 #include "nano_gicp/cuda/cuda_transform.cuh"
-#include <algorithm>
 
 namespace nano_gicp {
 namespace cuda {

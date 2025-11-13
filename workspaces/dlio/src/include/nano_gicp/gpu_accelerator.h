@@ -52,7 +52,7 @@ public:
     bool calculateCovariances(
         const typename pcl::PointCloud<PointT>::ConstPtr& cloud,
         int k_correspondences,
-        std::vector<Eigen::Matrix4d>& covariances,
+        std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>& covariances,
         float& density);
     
     // GPU-accelerated point cloud transformation

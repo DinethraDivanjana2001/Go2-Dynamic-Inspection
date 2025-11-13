@@ -7,8 +7,7 @@
 
 #include "nano_gicp/cuda/cuda_knn.cuh"
 #include <cuda_runtime.h>
-#include <Eigen/Core>
-#include <vector>
+#include <cstddef>
 
 namespace nano_gicp {
 namespace cuda {
@@ -37,11 +36,11 @@ public:
     // num_points: number of points
     // knn_search: KNN search object (already has target cloud set)
     // k: number of neighbors for covariance computation
-    // covariances: output array of 4x4 covariance matrices (in Eigen format)
+    // covariances_data: output array of 16 doubles per point (4x4 row-major matrices)
     // density: output average density metric
     bool calculateCovariances(const float* points, int num_points,
                              CudaKNNSearch& knn_search, int k,
-                             std::vector<Eigen::Matrix4d>& covariances,
+                             double* covariances_data,
                              float& density);
     
     void clear();

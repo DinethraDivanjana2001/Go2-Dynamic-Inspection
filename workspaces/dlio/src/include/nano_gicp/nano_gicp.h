@@ -53,6 +53,7 @@
 
 #include "nano_gicp/lsq_registration.h"
 #include "nano_gicp/nanoflann_adaptor.h"
+#include "nano_gicp/gpu_accelerator.h"
 
 namespace nano_gicp {
 
@@ -147,6 +148,10 @@ protected:
 
   std::vector<int> correspondences_;
   std::vector<float> sq_distances_;
+  
+  // GPU Accelerator
+  std::shared_ptr<GpuAccelerator> gpu_accelerator_;
+  bool use_gpu_;
 };
 }  // namespace nano_gicp
 

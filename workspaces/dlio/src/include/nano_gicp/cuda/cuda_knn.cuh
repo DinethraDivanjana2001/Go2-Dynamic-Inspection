@@ -7,8 +7,7 @@
 
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
-#include <vector>
-#include <memory>
+#include <cstddef>
 
 namespace nano_gicp {
 namespace cuda {

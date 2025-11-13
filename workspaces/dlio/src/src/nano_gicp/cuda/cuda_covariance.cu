@@ -3,10 +3,11 @@
  * Optimized for RTX 2060 (Turing architecture)
  ***********************************************************/
 
-#include "nano_gicp/cuda/cuda_covariance.cuh"
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <cfloat>
+#include "nano_gicp/cuda/cuda_covariance.cuh"
+#include <Eigen/Core>
 
 namespace nano_gicp {
 namespace cuda {
@@ -278,7 +279,7 @@ void CudaCovarianceCalculator::allocateMemory(int max_points, int k) {
 bool CudaCovarianceCalculator::calculateCovariances(
     const float* points, int num_points,
     CudaKNNSearch& knn_search, int k,
-    std::vector<Eigen::Matrix4d>& covariances,
+    double* covariances_data,
     float& density) {
     
     allocateMemory(num_points, k);
@@ -287,14 +288,14 @@ bool CudaCovarianceCalculator::calculateCovariances(
     knn_search.batchKnnSearch(points, num_points, k, d_knn_indices_, d_knn_distances_);
     
     // Copy points to GPU
-    std::vector<GpuPoint> h_points(num_points);
+    GpuPoint* h_points = new GpuPoint[num_points];
     for (int i = 0; i < num_points; i++) {
         h_points[i].x = points[i * 3 + 0];
         h_points[i].y = points[i * 3 + 1];
         h_points[i].z = points[i * 3 + 2];
         h_points[i].w = 1.0f;
     }
-    CUDA_CHECK(cudaMemcpy(d_points_, h_points.data(), 
+    CUDA_CHECK(cudaMemcpy(d_points_, h_points, 
                          num_points * sizeof(GpuPoint), cudaMemcpyHostToDevice));
     
     // Launch covariance computation kernel
@@ -311,22 +312,18 @@ bool CudaCovarianceCalculator::calculateCovariances(
     CUDA_CHECK(cudaDeviceSynchronize());
     
     // Copy results back to host
-    std::vector<GpuMatrix4> h_covariances(num_points);
-    CUDA_CHECK(cudaMemcpy(h_covariances.data(), d_covariances_,
+    GpuMatrix4* h_covariances = new GpuMatrix4[num_points];
+    CUDA_CHECK(cudaMemcpy(h_covariances, d_covariances_,
                          num_points * sizeof(GpuMatrix4), cudaMemcpyDeviceToHost));
     
-    std::vector<float> h_density_contributions(num_points);
-    CUDA_CHECK(cudaMemcpy(h_density_contributions.data(), d_density_contributions_,
+    float* h_density_contributions = new float[num_points];
+    CUDA_CHECK(cudaMemcpy(h_density_contributions, d_density_contributions_,
                          num_points * sizeof(float), cudaMemcpyDeviceToHost));
     
-    // Convert to Eigen format
-    covariances.resize(num_points);
+    // Convert to output format (row-major 4x4 matrices)
     for (int i = 0; i < num_points; i++) {
-        Eigen::Matrix4d& cov = covariances[i];
-        for (int row = 0; row < 4; row++) {
-            for (int col = 0; col < 4; col++) {
-                cov(row, col) = h_covariances[i].data[row * 4 + col];
-            }
+        for (int j = 0; j < 16; j++) {
+            covariances_data[i * 16 + j] = static_cast<double>(h_covariances[i].data[j]);
         }
     }
     
@@ -336,6 +333,11 @@ bool CudaCovarianceCalculator::calculateCovariances(
         density += h_density_contributions[i];
     }
     density /= num_points;
+    
+    // Cleanup
+    delete[] h_points;
+    delete[] h_covariances;
+    delete[] h_density_contributions;
     
     return true;
 }

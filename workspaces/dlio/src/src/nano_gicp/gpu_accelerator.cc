@@ -9,6 +9,7 @@
 #include "nano_gicp/cuda/cuda_gicp.cuh"
 #include <cuda_runtime.h>
 #include <iostream>
+#include <pcl/common/transforms.h>
 
 namespace nano_gicp {
 
@@ -132,7 +133,7 @@ template<typename PointT>
 bool GpuAccelerator::calculateCovariances(
     const typename pcl::PointCloud<PointT>::ConstPtr& cloud,
     int k_correspondences,
-    std::vector<Eigen::Matrix4d>& covariances,
+    std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>& covariances,
     float& density) {
     
     if (!gpu_available_ || !cov_calculator_ || !knn_search_) {
@@ -147,12 +148,29 @@ bool GpuAccelerator::calculateCovariances(
         // Set cloud as both source and target for self-KNN
         knn_search_->setTargetCloud(points.data(), cloud->size());
         
+        // Allocate temporary buffer for covariance data
+        std::vector<double> cov_data(cloud->size() * 16);
+        
         // Calculate covariances
-        return cov_calculator_->calculateCovariances(
+        bool result = cov_calculator_->calculateCovariances(
             points.data(), cloud->size(),
             *knn_search_, k_correspondences,
-            covariances, density
+            cov_data.data(), density
         );
+        
+        if (result) {
+            // Convert from raw data back to Eigen::Matrix4d
+            covariances.resize(cloud->size());
+            for (size_t i = 0; i < cloud->size(); i++) {
+                for (int row = 0; row < 4; row++) {
+                    for (int col = 0; col < 4; col++) {
+                        covariances[i](row, col) = cov_data[i * 16 + row * 4 + col];
+                    }
+                }
+            }
+        }
+        
+        return result;
     } catch (const std::exception& e) {
         if (config_.verbose) {
             std::cerr << "[GPU Accelerator] Covariance calculation failed: " 
@@ -221,10 +239,10 @@ template void GpuAccelerator::arrayToCloud<pcl::PointXYZI>(
 
 template bool GpuAccelerator::calculateCovariances<pcl::PointXYZ>(
     const pcl::PointCloud<pcl::PointXYZ>::ConstPtr&, int,
-    std::vector<Eigen::Matrix4d>&, float&);
+    std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>&, float&);
 template bool GpuAccelerator::calculateCovariances<pcl::PointXYZI>(
     const pcl::PointCloud<pcl::PointXYZI>::ConstPtr&, int,
-    std::vector<Eigen::Matrix4d>&, float&);
+    std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>&, float&);
 
 template void GpuAccelerator::transformPointCloud<pcl::PointXYZ>(
     const pcl::PointCloud<pcl::PointXYZ>::ConstPtr&,

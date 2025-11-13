@@ -59,7 +59,7 @@ void CudaPointCloudTransform::transformPointCloud(float* points, int num_points,
     allocateMemory(num_points);
     
     // Convert and copy points to GPU
-    std::vector<GpuPoint> h_points(num_points);
+    GpuPoint* h_points = new GpuPoint[num_points];
     for (int i = 0; i < num_points; i++) {
         h_points[i].x = points[i * 3 + 0];
         h_points[i].y = points[i * 3 + 1];
@@ -67,7 +67,7 @@ void CudaPointCloudTransform::transformPointCloud(float* points, int num_points,
         h_points[i].w = 1.0f;
     }
     
-    CUDA_CHECK(cudaMemcpy(d_points_, h_points.data(),
+    CUDA_CHECK(cudaMemcpy(d_points_, h_points,
                          num_points * sizeof(GpuPoint), cudaMemcpyHostToDevice));
     
     // Copy transform matrix (assume row-major 4x4)
@@ -86,7 +86,7 @@ void CudaPointCloudTransform::transformPointCloud(float* points, int num_points,
     CUDA_CHECK(cudaDeviceSynchronize());
     
     // Copy results back
-    CUDA_CHECK(cudaMemcpy(h_points.data(), d_points_,
+    CUDA_CHECK(cudaMemcpy(h_points, d_points_,
                          num_points * sizeof(GpuPoint), cudaMemcpyDeviceToHost));
     
     for (int i = 0; i < num_points; i++) {
@@ -94,6 +94,8 @@ void CudaPointCloudTransform::transformPointCloud(float* points, int num_points,
         points[i * 3 + 1] = h_points[i].y;
         points[i * 3 + 2] = h_points[i].z;
     }
+    
+    delete[] h_points;
 }
 
 void CudaPointCloudTransform::batchTransformPointCloud(
@@ -104,7 +106,7 @@ void CudaPointCloudTransform::batchTransformPointCloud(
     allocateMemory(num_points);
     
     // Convert and copy points
-    std::vector<GpuPoint> h_points(num_points);
+    GpuPoint* h_points = new GpuPoint[num_points];
     for (int i = 0; i < num_points; i++) {
         h_points[i].x = points[i * 3 + 0];
         h_points[i].y = points[i * 3 + 1];
@@ -112,7 +114,7 @@ void CudaPointCloudTransform::batchTransformPointCloud(
         h_points[i].w = 1.0f;
     }
     
-    CUDA_CHECK(cudaMemcpy(d_points_, h_points.data(),
+    CUDA_CHECK(cudaMemcpy(d_points_, h_points,
                          num_points * sizeof(GpuPoint), cudaMemcpyHostToDevice));
     
     // Allocate and copy transforms
@@ -139,7 +141,7 @@ void CudaPointCloudTransform::batchTransformPointCloud(
     CUDA_CHECK(cudaDeviceSynchronize());
     
     // Copy results back
-    CUDA_CHECK(cudaMemcpy(h_points.data(), d_points_,
+    CUDA_CHECK(cudaMemcpy(h_points, d_points_,
                          num_points * sizeof(GpuPoint), cudaMemcpyDeviceToHost));
     
     for (int i = 0; i < num_points; i++) {
@@ -149,6 +151,7 @@ void CudaPointCloudTransform::batchTransformPointCloud(
     }
     
     // Cleanup
+    delete[] h_points;
     CUDA_CHECK(cudaFree(d_transforms));
     CUDA_CHECK(cudaFree(d_map));
 }

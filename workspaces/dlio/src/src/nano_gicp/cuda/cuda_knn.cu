@@ -4,7 +4,6 @@
  ***********************************************************/
 
 #include "nano_gicp/cuda/cuda_knn.cuh"
-#include <algorithm>
 #include <cstdio>
 #include <cfloat>
 

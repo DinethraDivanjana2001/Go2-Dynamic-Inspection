@@ -3,7 +3,7 @@
  ***********************************************************/
 
 #include "nano_gicp/cuda/cuda_gicp.cuh"
-#include <algorithm>
+#include "nano_gicp/cuda/cuda_transform.cuh"
 #include <cfloat>
 
 namespace nano_gicp {

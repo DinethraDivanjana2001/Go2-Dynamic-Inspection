@@ -5,6 +5,11 @@
 
 set -e  # Exit on error
 
+# Ensure we're using CUDA 12.6 or newer
+export PATH=/usr/local/cuda-12.6/bin:$PATH
+export LD_LIBRARY_PATH=/usr/local/cuda-12.6/lib64:$LD_LIBRARY_PATH
+export CUDA_HOME=/usr/local/cuda-12.6
+
 echo "======================================"
 echo "DLIO GPU-Accelerated Build Script"
 echo "======================================"

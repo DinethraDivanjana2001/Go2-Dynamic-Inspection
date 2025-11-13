@@ -8,7 +8,6 @@
 #include "nano_gicp/cuda/cuda_knn.cuh"
 #include "nano_gicp/cuda/cuda_covariance.cuh"
 #include <cuda_runtime.h>
-#include <Eigen/Core>
 
 namespace nano_gicp {
 namespace cuda {
@@ -30,15 +29,18 @@ public:
         float* sq_distances,   // Output: size num_source
         GpuMatrix4* mahalanobis); // Output: size num_source
     
-    // Compute linearization (H and b for LM optimization)
+    // Compute GICP linearization (H matrix and b vector)
+    // Returns the current error
+    // H_data: output 6x6 matrix (36 doubles, row-major)
+    // b_data: output 6x1 vector (6 doubles)
     double computeLinearization(
         const float* source_points, int num_source,
         const float* target_points, int num_target,
         const int* correspondences,
         const GpuMatrix4* mahalanobis,
         const float* transform,
-        Eigen::Matrix<double, 6, 6>& H,
-        Eigen::Matrix<double, 6, 1>& b);
+        double* H_data,
+        double* b_data);
     
     // Compute error only (no Jacobian)
     double computeError(

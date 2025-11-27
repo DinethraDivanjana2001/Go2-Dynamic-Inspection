@@ -37,17 +37,32 @@ echo "  T=6s: far_planner starts"
 echo ""
 
 # Launch the pipeline
-# ros2 launch go2_config gazebo_velodyne.launch.py &
+# Step 1: Start Gazebo simulation first and wait for it to be ready
+echo "Starting Gazebo simulation..."
 ros2 launch go2_config gazebo_velodyne.launch.py world:=/home/yasiru/world.world &
-ros2 launch pipeline_launcher pipeline_gazebo.launch.py &
+GAZEBO_PID=$!
 
+# Wait for Gazebo and robot to be ready (controller_manager needs time)
+echo "Waiting for Gazebo and robot to initialize (15 seconds)..."
+sleep 15
+
+# Check if Gazebo is still running
+if ! kill -0 $GAZEBO_PID 2>/dev/null; then
+    echo "ERROR: Gazebo failed to start. Check for errors above."
+    exit 1
+fi
+
+# Step 2: Start the pipeline launcher
+echo "Starting pipeline launcher..."
+ros2 launch pipeline_launcher pipeline_gazebo.launch.py &
+PIPELINE_PID=$!
 
 # --- Publish static transforms ---
-sleep 2  # Small delay to ensure ROS nodes are up
+sleep 3  # Small delay to ensure ROS nodes are up
 
 echo "Publishing static transforms..."
 ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 livox_frame sensor &
 ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 map_o3d map &
 
-
+echo "All nodes launched. Press Ctrl+C to stop."
 wait  # Wait for both background processes to finish

@@ -30,7 +30,7 @@ def generate_launch_description():
 
     # 2. Launch DLIO (after 5s)
     dlio_launch = TimerAction(
-        period=5.0,
+        period=1.0,
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource([
@@ -47,7 +47,7 @@ def generate_launch_description():
 
     # 3. Launch Open3D SLAM after 15 seconds total
     open3d_slam_launch = TimerAction(
-        period=15.0,
+        period=1.0,
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource([
@@ -55,8 +55,8 @@ def generate_launch_description():
                 ]),
                 launch_arguments={
                     'use_sim_time': 'true',
-                    'launch_rviz': 'true',
-                    'cloud_topic': '/livox/lidar',
+                    'launch_rviz': 'false',
+                    'cloud_topic': '/dlio_registered_scan',
                 }.items()
             )
         ]
@@ -64,7 +64,7 @@ def generate_launch_description():
 
     # 4. Launch Vehicle Simulator after 20 seconds total
     vehicle_simulator_launch = TimerAction(
-        period=20.0,
+        period=1.0,
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource([
@@ -76,7 +76,7 @@ def generate_launch_description():
     
     # 5. Launch Far Planner after 25 seconds total
     far_planner_launch = TimerAction(
-        period=25.0,
+        period=1.0,
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource([

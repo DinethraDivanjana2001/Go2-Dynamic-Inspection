@@ -36,7 +36,7 @@ def generate_launch_description():
             FindPackageShare('direct_lidar_inertial_odometry'), '/launch/dlio.launch.py'
         ]),
         launch_arguments={
-            'rviz': 'false',
+            'rviz': 'true',
             'pointcloud_topic': '/livox/lidar',
             'imu_topic': '/livox/imu',
         }.items()
@@ -72,7 +72,7 @@ def generate_launch_description():
                 launch_arguments={
                     'use_sim_time': 'true',
                     'launch_rviz': 'true',
-                    'cloud_topic': '/livox/lidar',
+                    'cloud_topic': '/dlio_registered_scan',
                 }.items()
             )
         ]

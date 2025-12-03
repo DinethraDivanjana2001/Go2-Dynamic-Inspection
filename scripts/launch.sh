@@ -66,9 +66,9 @@ WORKSPACES=(
     "far_planner"
     "dlio"
     "open3d_slam_ws"
-    "pipeline_launcher"
 )
 
+source "$WORKSPACE_ROOT/workspaces/pipeline_launcher/install/setup.sh"
 for ws in "${WORKSPACES[@]}"; do
     ws_setup="$WORKSPACE_ROOT/workspaces/$ws/install/setup.bash"
     if [[ -f "$ws_setup" ]]; then

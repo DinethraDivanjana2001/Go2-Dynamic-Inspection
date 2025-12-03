@@ -44,7 +44,7 @@ def generate_launch_description() -> LaunchDescription:
 
     dlio = create_dlio_launch(
         delay=timing.dlio,
-        rviz="true",
+        rviz="false",
         pointcloud_topic=TOPICS_LIVOX.pointcloud,
         imu_topic=TOPICS_LIVOX.imu,
     )

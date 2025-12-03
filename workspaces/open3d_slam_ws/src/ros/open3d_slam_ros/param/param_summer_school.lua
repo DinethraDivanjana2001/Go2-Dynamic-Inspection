@@ -32,7 +32,7 @@ params.mapper_localizer.scan_to_map_registration.icp.reference_cloud_seting_peri
 
 --MAP_INITIALIZER
 params.map_initializer.pcd_file_package = "open3d_slam_ros"
-params.map_initializer.pcd_file_path = "smb_real_agressive.pcd"
+params.map_initializer.pcd_file_path = "map.pcd"
 params.map_initializer.is_initialize_interactively = false
 params.map_initializer.init_pose.x = 0.0
 params.map_initializer.init_pose.y = 0.0

@@ -52,8 +52,8 @@ Visualization Manager:
     - Alpha: 0.10000000149011612
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 35.752479553222656
-        Min Value: -1.321250319480896
+        Max Value: 35.4777717590332
+        Min Value: -0.5206514596939087
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -163,7 +163,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: Intensity
       Decay Time: 0
-      Enabled: false
+      Enabled: true
       Invert Rainbow: true
       Max Color: 255; 255; 255
       Max Intensity: 0.20000000298023224
@@ -184,7 +184,7 @@ Visualization Manager:
         Value: /terrain_map_ext
       Use Fixed Frame: true
       Use rainbow: true
-      Value: false
+      Value: true
     - Alpha: 1
       Buffer Length: 1
       Class: rviz_default_plugins/Path
@@ -487,25 +487,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 27.124431610107422
+      Distance: 28.373619079589844
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 4.281435966491699
-        Y: 4.182733058929443
-        Z: -3.2160513401031494
+        X: 7.16588020324707
+        Y: 3.0719823837280273
+        Z: -2.919329881668091
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.7397977113723755
+      Pitch: 0.9997976422309875
       Target Frame: map
       Value: Orbit (rviz)
-      Yaw: 5.375407695770264
+      Yaw: 4.735398292541504
     Saved: ~
 Window Geometry:
   Displays:

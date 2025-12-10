@@ -147,12 +147,14 @@ def create_open3d_slam_launch(
     use_sim_time: str = "false",
     launch_rviz: str = "false",
     cloud_topic: str = config.TOPICS_DLIO_OUTPUT.pointcloud,
+    odometry_topic: str = config.TOPICS_DLIO_OUTPUT.odometry,
 ) -> TimerAction:
     """Create Open3D SLAM launch action."""
     args = config.Open3dSlamArgs(
         use_sim_time=use_sim_time,
         launch_rviz=launch_rviz,
         cloud_topic=cloud_topic,
+        odometry_topic=odometry_topic,
     )
 
     return create_timed_launch(
@@ -163,11 +165,11 @@ def create_open3d_slam_launch(
     )
 
 
-def create_vehicle_simulator_launch(delay: float) -> TimerAction:
-    """Create Vehicle Simulator launch action."""
+def create_go2_simulator_launch(delay: float) -> TimerAction:
+    """Create Go2 Simulator launch action."""
     return create_timed_launch(
-        package=config.PACKAGE_VEHICLE_SIMULATOR,
-        launch_file=config.LAUNCH_VEHICLE_SIMULATOR,
+        package=config.PACKAGE_GO2_SIMULATOR,
+        launch_file=config.LAUNCH_GO2_SIMULATOR,
         delay=delay,
     )
 

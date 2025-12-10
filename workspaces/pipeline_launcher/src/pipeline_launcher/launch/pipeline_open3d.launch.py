@@ -66,7 +66,7 @@ def generate_launch_description() -> LaunchDescription:
             # foxglove,
             # dlio,
             open3d_slam,
-            go2_simulator,
-            far_planner,
+            # go2_simulator,
+            # far_planner,
         ]
     )

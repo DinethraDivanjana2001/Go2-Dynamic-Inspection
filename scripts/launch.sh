@@ -23,6 +23,18 @@
 set -e  # Exit on any error
 
 # -----------------------------------------------------------------------------
+# Cleanup on exit
+# -----------------------------------------------------------------------------
+cleanup() {
+    echo ""
+    echo "Stopping pipeline and cleaning up..."
+    killdlio
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM
+
+# -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,6 +50,18 @@ case "$1" in
         ;;
     --dev|-d)
         LAUNCH_FILE="pipeline_dev.launch.py"
+        ;;
+    --open|-o)
+        LAUNCH_FILE="pipeline_open3d.launch.py"
+        ;;
+    --far|-f)
+        LAUNCH_FILE="pipeline_far.launch.py"
+        ;;
+    --vehicle|-v)
+        LAUNCH_FILE="pipeline_vehicle.launch.py"
+        ;;
+    --dlio|-l)
+        LAUNCH_FILE="pipeline_dlio.launch.py"
         ;;
     --sim|-s)
         echo "For simulation, use ./scripts/sim.sh instead"
@@ -69,6 +93,8 @@ WORKSPACES=(
 )
 
 source "$WORKSPACE_ROOT/workspaces/pipeline_launcher/install/setup.sh"
+source "$WORKSPACE_ROOT/workspaces/dlio/install/setup.sh"
+source "$WORKSPACE_ROOT/workspaces/autonomous_exploration/install/setup.sh"
 for ws in "${WORKSPACES[@]}"; do
     ws_setup="$WORKSPACE_ROOT/workspaces/$ws/install/setup.bash"
     if [[ -f "$ws_setup" ]]; then
@@ -105,8 +131,13 @@ PIPELINE_PID=$!
 sleep 2  # Wait for nodes to initialize
 
 echo "Publishing static transforms..."
-ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 livox_frame sensor &
-ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 map_o3d map &
+# ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 livox_frame sensor &
+# ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 map_o3d map &
+ros2 run tf2_ros static_transform_publisher 0 0 0.25 0 0 0 base_footprint base_link &
+# ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 base_link velodyne_base_link &
+# ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 velodyne_base_link velodyne &
+
+(cd ~/Documents/rosbags && ros2 bag play rosbag_003/) &
 
 echo ""
 echo "Pipeline launched successfully. Press Ctrl+C to stop."

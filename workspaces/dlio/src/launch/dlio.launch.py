@@ -53,12 +53,12 @@ def generate_launch_description():
         remappings=[
             ('pointcloud', pointcloud_topic),
             ('imu', imu_topic),
-            ('odom', 'odom_dlio'),
+            ('odom', 'state_estimation'),
             ('pose', 'dlio/odom_node/pose'),
             ('path', 'dlio/odom_node/path'),
             ('kf_pose', 'dlio/odom_node/keyframes'),
             ('kf_cloud', 'dlio/odom_node/pointcloud/keyframe'),
-            ('deskewed', 'dlio_registered_scan'),
+            ('deskewed', 'registered_scan'),
         ],
     )
 
@@ -90,6 +90,6 @@ def generate_launch_description():
         declare_pointcloud_topic_arg,
         declare_imu_topic_arg,
         dlio_odom_node,
-        dlio_map_node,
+        # dlio_map_node,
         rviz_node
     ])

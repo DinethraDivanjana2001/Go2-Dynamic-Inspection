@@ -1,0 +1,69 @@
+# Build directories
+build/
+install/
+log/
+
+# But keep important log folder in vehicle_simulator
+!workspaces/autonomous_exploration/src/vehicle_simulator/log/
+!workspaces/autonomous_exploration/src/vehicle_simulator/log/**
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+
+# Documentation build
+docs/_build/
+docs/build/
+
+# ROS
+*.bag
+*.db3
+
+# PLY files (large point cloud data) - exclude generated submaps
+workspaces/open3d_slam_ws/src/ros/open3d_slam_ros/data/*.ply
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+/rosbags
+
+frames_*.gv
+frames_*.pdf
+
+
+# ===============================
+# ML binaries / models (local only)
+# ===============================
+*.pt
+*.pth
+*.onnx
+*.engine
+*.zip
+*.whl
+*.db

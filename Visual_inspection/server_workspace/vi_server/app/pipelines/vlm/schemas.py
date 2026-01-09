@@ -46,6 +46,10 @@ class VLMResult(BaseModel):
         default=None, 
         description="Objects detected in the image"
     )
+    vlm_raw_response: Optional[str] = Field(
+        default=None,
+        description="Raw response from VLM (for debugging/verification)"
+    )
     
     @field_validator("decision")
     @classmethod

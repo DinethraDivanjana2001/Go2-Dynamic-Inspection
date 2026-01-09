@@ -41,10 +41,16 @@ class Settings(BaseSettings):
     )
 
     # Object Types
-    allowed_object_types: List[str] = Field(
-        default=["gauge", "door", "fire_extinguisher", "unknown", "emergency_exit", "main_cylinder"],
-        description="Allowed object types for processing"
+    allowed_object_types: str = Field(
+        default="gauge,door,fire_extinguisher,unknown,emergency_exit,main_cylinder",
+        description="Allowed object types for processing (comma-separated)"
     )
+    
+    def get_allowed_types(self) -> List[str]:
+        """Get allowed object types as a list."""
+        if isinstance(self.allowed_object_types, str):
+            return [t.strip() for t in self.allowed_object_types.split(',')]
+        return self.allowed_object_types
 
     # Job Processing
     max_queue_size: int = Field(

@@ -261,6 +261,91 @@ class OpenAIVLMClient(VLMClient):
             raise
 
 
+class GoogleGeminiVLMClient(VLMClient):
+    """Google Gemini Vision client."""
+    
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash-exp"):
+        """
+        Initialize Google Gemini client.
+        
+        Args:
+            api_key: Google API key
+            model: Model name (default: gemini-2.0-flash-exp)
+        """
+        try:
+            import google.generativeai as genai
+        except ImportError:
+            raise ImportError(
+                "Google Generative AI package not installed. Install with: pip install google-generativeai"
+            )
+        
+        genai.configure(api_key=api_key)
+        self.model = genai.GenerativeModel(model)
+        self.model_name = model
+        logger.info(f"Initialized Google Gemini VLM client with model: {model}")
+    
+    def analyze_image(
+        self, 
+        image_path: str, 
+        system_prompt: str, 
+        user_prompt: str
+    ) -> str:
+        """
+        Analyze image using Google Gemini Vision API.
+        
+        Args:
+            image_path: Path to image file
+            system_prompt: System instructions
+            user_prompt: User prompt/question
+            
+        Returns:
+            Model response as string (JSON)
+        """
+        logger.info(f"Analyzing image with Google Gemini: {image_path}")
+        
+        try:
+            from PIL import Image
+            import google.generativeai as genai
+            
+            # Load image
+            img = Image.open(image_path)
+            
+            # Combine system and user prompts
+            full_prompt = f"{system_prompt}\n\n{user_prompt}"
+            
+            # Call API
+            response = self.model.generate_content([full_prompt, img])
+            content = response.text
+            
+            logger.debug(f"Gemini response: {content[:200]}...")
+            
+            # Validate JSON
+            try:
+                json.loads(content)
+                return content
+            except json.JSONDecodeError:
+                # Try to extract JSON from markdown code blocks
+                import re
+                json_match = re.search(r'```json\s*(\{.*?\})\s*```', content, re.DOTALL)
+                if json_match:
+                    json_content = json_match.group(1)
+                    json.loads(json_content)  # Validate
+                    return json_content
+                
+                # Try to find JSON object
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_match:
+                    json_content = json_match.group(0)
+                    json.loads(json_content)  # Validate
+                    return json_content
+                
+                raise ValueError(f"Invalid JSON response: {content}")
+        
+        except Exception as e:
+            logger.error(f"Google Gemini API error: {e}", exc_info=True)
+            raise
+
+
 def get_vlm_client() -> VLMClient:
     """
     Factory function to get appropriate VLM client based on settings.
@@ -284,8 +369,18 @@ def get_vlm_client() -> VLMClient:
             model=settings.vlm_model
         )
     
+    elif provider == "google":
+        if not settings.vlm_api_key:
+            raise ValueError("VLM_API_KEY is required for Google provider")
+        
+        logger.info(f"Using Google Gemini VLM client with model: {settings.vlm_model}")
+        return GoogleGeminiVLMClient(
+            api_key=settings.vlm_api_key,
+            model=settings.vlm_model
+        )
+    
     else:
         raise ValueError(
             f"Unknown VLM provider: {provider}. "
-            f"Supported providers: stub, openai"
+            f"Supported providers: stub, openai, google"
         )

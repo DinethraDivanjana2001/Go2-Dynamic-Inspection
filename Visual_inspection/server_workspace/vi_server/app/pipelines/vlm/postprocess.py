@@ -127,6 +127,9 @@ def validate_and_parse_vlm_response(
         f"confidence={result.confidence:.2f}"
     )
     
+    # Store raw response for verification
+    result.vlm_raw_response = response
+    
     return result
 
 

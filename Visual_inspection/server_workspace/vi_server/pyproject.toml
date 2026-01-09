@@ -34,6 +34,11 @@ dependencies = [
     "numpy>=1.24.0",
 ]
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+exclude = ["sample_images*", "scripts*", "data*"]
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",

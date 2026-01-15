@@ -36,7 +36,7 @@ void ScanToMapIcp::update(const MapperParameters& p) {
 PointCloudPtr ScanToMapIcp::preprocess(const PointCloud& in) const {
   auto croppedCloud = mapBuilderCropper_->crop(in);
 
-  // TODO(TT) Check if the order of this operations matter this is okay or have any benefits. (Currently switched from original)
+  // TODO(TT): Verify if operation order (voxelization before cropping) impacts performance or quality
   o3d_slam::voxelize(params_.scanProcessing_.voxelSize_, croppedCloud.get());
   // cloudRegistration->estimateNormalsOrCovariancesIfNeeded(croppedCloud.get());
 
@@ -45,9 +45,9 @@ PointCloudPtr ScanToMapIcp::preprocess(const PointCloud& in) const {
 }
 
 PointCloudPtr ScanToMapIcp::reducedPreprocess(const PointCloud& in) const {
-  auto croppedCloud = mapBuilderCropper_->crop(in);
+  PointCloudPtr croppedCloud = scanMatcherCropper_->crop(in);
 
-  // TODO(TT) Check if the order of this operations matter this is okay or have any benefits. (Currently switched from original)
+  // TODO(TT): Verify if operation order (voxelization before cropping) impacts performance or quality
   o3d_slam::voxelize(params_.scanProcessing_.voxelSize_, croppedCloud.get());
 
   // For reproducability, random rownsampling must be disabled. i.e. set the ratio to 1.0

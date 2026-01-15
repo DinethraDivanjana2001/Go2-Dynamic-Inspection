@@ -1,0 +1,59 @@
+# ROS 2 / Colcon build artifacts
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+*.egg
+
+# C++ compiled
+*.o
+*.a
+*.so.*
+*.dylib
+*.dll
+*.exe
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.cache/
+
+# Point cloud data and maps (runtime generated)
+*.pcd
+*.ply
+*.bag
+*.db3
+
+# Temporary files
+*.log
+*.tmp
+*.bak
+*.orig
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# Documentation build
+src/documentation/_build/
+src/documentation/_static/
+src/documentation/_templates/
+
+# Keep data directory structure but ignore contents
+src/ros/open3d_slam_ros/data/*
+!src/ros/open3d_slam_ros/data/.gitkeep
+!src/ros/open3d_slam_ros/data/*.yaml

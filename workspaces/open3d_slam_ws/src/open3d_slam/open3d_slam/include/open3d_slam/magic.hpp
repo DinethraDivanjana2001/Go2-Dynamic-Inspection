@@ -9,7 +9,7 @@
 
 namespace o3d_slam {
 namespace magic {
-// TODO
+// Magic constants for SLAM parameters - consider making these configurable via parameters
 static const double voxelSizeCorrespondenceSearchIfMapVoxelSizeIsZero = 0.04;
 static const size_t icpRunUntilConvergenceNumberOfIterations = 100;
 static const double voxelExpansionFactorOverlapComputation = 20.0;

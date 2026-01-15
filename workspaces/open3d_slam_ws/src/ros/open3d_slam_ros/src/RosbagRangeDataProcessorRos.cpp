@@ -219,7 +219,7 @@ void RosbagRangeDataProcessorRos::startProcessing() {
     }
 
     if (slam_->exportIMUdata_) {
-        // TODO: Implement exportIMUData() in ROS 2 style if needed.
+        // TODO: Implement exportIMUData() in ROS 2 style - port from ROS 1 implementation or remove if not needed
         std::cout << "IMU Exporting is complete\n";
         rclcpp::sleep_for(std::chrono::seconds(10));
         std::cout << "Sleeping 10 seconds..\n";

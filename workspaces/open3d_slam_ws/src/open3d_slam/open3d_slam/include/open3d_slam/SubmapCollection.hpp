@@ -166,7 +166,7 @@ class SubmapCollection {
   mutable VoxelMap consistencyCheckNeighbourVoxCopy_;
   mutable size_t lastConsistencyCandidateSubmapIdx_ = std::numeric_limits<size_t>::max();
 
-  // TODO MAGIC
+  // Magic constant for consistency check - consider making configurable
   // const double minDistanceToReturnToRecentSubmap_ = 30.0;  // in meters
   const double kConsistencyCheckSpatialThresh = 5.0;  // meters
 };

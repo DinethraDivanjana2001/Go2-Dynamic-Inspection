@@ -131,7 +131,7 @@ void SlamWrapper::appendPoseToTrackedPath(geometry_msgs::msg::PoseStamped transf
 
 void SlamWrapper::appendPoseToBestGuessPath(geometry_msgs::msg::PoseStamped transform) {
   {
-    // TODO pass reference herE?
+    // TODO: Consider passing by const reference for performance
     std::lock_guard<std::mutex> lock(mapper_->pathMutex_);
     mapper_->bestGuessPath_.poses.push_back(transform);
   }
@@ -227,7 +227,7 @@ bool SlamWrapper::addRangeScan(const open3d::geometry::PointCloud cloud, const T
     }
   }
 
-  // TODO, do we need this?
+  // TODO: Evaluate if NaN removal is needed - currently disabled for performance
   // auto removedNans = removePointsWithNonFiniteValues(cloud);
   const TimestampedPointCloud timestampedCloud{timestamp, cloud};
 

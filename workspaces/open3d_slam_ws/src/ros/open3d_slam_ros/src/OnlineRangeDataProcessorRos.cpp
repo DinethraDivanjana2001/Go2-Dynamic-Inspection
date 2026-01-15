@@ -157,7 +157,7 @@ if (!slam_->isUseExistingMapEnabled() && slam_->isUsingOdometryTopic()) {
     }
   }
 
-  // TODO(TT) Is this the best place to do this? (ofc its not)
+  // TODO(TT): Consider moving point cloud publishing to a separate callback for better separation of concerns
   // Get the latest registered point cloud and publish it.
   std::tuple<PointCloud, Time, Transform> cloudTimePair = slam_->getLatestRegisteredCloudTimestampPair();
 
@@ -212,7 +212,7 @@ if (!slam_->isUseExistingMapEnabled() && slam_->isUsingOdometryTopic()) {
     return;
   }
 
-  // TODO [TT]
+  // TODO [TT]: Refactor transform publishing logic into separate helper function
   // Functionize this stuff.
   Transform calculatedTransform = std::get<2>(cloudTimePair);
 

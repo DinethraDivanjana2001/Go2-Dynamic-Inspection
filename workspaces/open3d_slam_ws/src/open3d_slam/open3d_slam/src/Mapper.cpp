@@ -21,6 +21,7 @@
 #include <open3d/utility/Eigen.h>
 #include <open3d/utility/Helper.h>
 #include "open3d_slam/ProfilerScopeGuard.hpp"
+#include <glog/logging.h>
 
 #pragma omp declare reduction(vec3d_plus : Eigen::Vector3d : omp_out += omp_in) initializer(omp_priv = Eigen::Vector3d::Zero())
 
@@ -402,13 +403,13 @@ bool Mapper::addRangeMeasurement(const Mapper::PointCloud& rawScan, const Time& 
       if (lastMeasurementTimestamp_ >= odomToRangeSensorBuffer_.earliest_time()) {
         odomToRangeSensorPrev = getTransform(lastMeasurementTimestamp_, odomToRangeSensorBuffer_) * calibration_.inverse();
       } else {
-        std::cerr << "Set odomToRangeSensorPrev = odomToRangeSensor so odometryMotion = I because "
-            "lastMeasurementTimestamp_ >= odomToRangeSensorBuffer_.earliest_time(). May happen on first iteration.\n";
+        VLOG(3) << "Set odomToRangeSensorPrev = odomToRangeSensor so odometryMotion = I because "
+            "lastMeasurementTimestamp_ >= odomToRangeSensorBuffer_.earliest_time(). May happen on first iteration.";
       
-        std::cout << "[Mapper][DEBUG] mapToRangeSensorEstimate:\n" << mapToRangeSensorEstimate.matrix() << std::endl;
-        std::cout << "[Mapper][DEBUG] odomToRangeSensor:\n" << odomToRangeSensor.matrix() << std::endl;
-        std::cout << "[Mapper][DEBUG] odomToRangeSensorPrev:\n" << odomToRangeSensorPrev.matrix() << std::endl;
-        std::cout << "[Mapper][DEBUG] odometryMotionMemory_:\n" << odometryMotionMemory_.matrix() << std::endl;
+        VLOG(3) << "[Mapper][DEBUG] mapToRangeSensorEstimate:\n" << mapToRangeSensorEstimate.matrix();
+        VLOG(3) << "[Mapper][DEBUG] odomToRangeSensor:\n" << odomToRangeSensor.matrix();
+        VLOG(3) << "[Mapper][DEBUG] odomToRangeSensorPrev:\n" << odomToRangeSensorPrev.matrix();
+        VLOG(3) << "[Mapper][DEBUG] odometryMotionMemory_:\n" << odometryMotionMemory_.matrix();
         
           }
 
@@ -488,7 +489,7 @@ bool Mapper::addRangeMeasurement(const Mapper::PointCloud& rawScan, const Time& 
           // std::vector<size_t> nbrs = submaps_->selectActiveMostOverlapAndKClosest(rawScan, mapToRangeSensor_, 2, active);
           // mapPatch = submaps_->getCachedCompositeSubmapFromMulti(nbrs);
 
-          // TODO needs work.
+          // TODO: Review and implement getCachedCompositeSubmapFromVoxel if needed for performance
           // mapPatch = submaps_->getCachedCompositeSubmapFromVoxel(nbrs);
         }
       }

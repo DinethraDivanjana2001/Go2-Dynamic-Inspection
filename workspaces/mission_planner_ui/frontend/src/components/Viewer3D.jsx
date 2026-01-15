@@ -127,7 +127,20 @@ const RobotDog = ({ color = "#cbd5e1" }) => {
     )
 }
 
-const DataVisualizer = ({ url }) => {
+// Calculate Euclidean Distance of path
+const calculatePathLength = (path) => {
+    if (!path || path.length < 2) return 0;
+    let dist = 0;
+    for (let i = 0; i < path.length - 1; i++) {
+        const dx = path[i + 1].x - path[i].x;
+        const dy = path[i + 1].y - path[i].y;
+        const dz = path[i + 1].z - path[i].z;
+        dist += Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+    return dist;
+};
+
+const DataVisualizer = ({ url, onPathUpdate }) => {
     const [tfs, setTfs] = useState({});
     const [path, setPath] = useState([]);
 
@@ -137,11 +150,14 @@ const DataVisualizer = ({ url }) => {
             try {
                 const data = JSON.parse(event.data);
                 if (data.tfs) setTfs(data.tfs);
-                if (data.path) setPath(data.path);
+                if (data.path) {
+                    setPath(data.path);
+                    if (onPathUpdate) onPathUpdate(data.path);
+                }
             } catch (e) { }
         };
         return () => ws.close();
-    }, [url]);
+    }, [url, onPathUpdate]);
 
     const linePoints = useMemo(() => path.map(p => [p.x, p.y, p.z]), [path]);
 
@@ -151,7 +167,6 @@ const DataVisualizer = ({ url }) => {
                 const p = [tf.translation.x, tf.translation.y, tf.translation.z];
                 const q = new THREE.Quaternion(tf.rotation.x, tf.rotation.y, tf.rotation.z, tf.rotation.w);
 
-                // If it's the base_link, render the Robot Dog!
                 if (childId.includes("base_link")) {
                     return (
                         <group key={childId} position={p} quaternion={q}>
@@ -172,7 +187,7 @@ const DataVisualizer = ({ url }) => {
             })}
 
             {linePoints.length > 1 && (
-                <Line points={linePoints} color="#fbbf24" lineWidth={6} /> // Yellow Path
+                <Line points={linePoints} color="#fbbf24" lineWidth={6} />
             )}
         </group>
     );
@@ -272,6 +287,7 @@ const Viewer3D = ({ onBack }) => {
     const [waypoints, setWaypoints] = useState([]);
     const [wpName, setWpName] = useState("");
     const [currentTheme, setCurrentTheme] = useState('dark');
+    const [pathLength, setPathLength] = useState(0.0);
 
     const controlsRef = useRef();
     const prevViewRef = useRef(null);
@@ -353,6 +369,13 @@ const Viewer3D = ({ onBack }) => {
                     </div>
                 </div>
 
+                <div className={`hidden md:flex items-center gap-4 text-xs font-mono border-x px-6 ${isDark ? 'border-white/10 text-slate-400' : 'border-slate-200 text-slate-500'}`}>
+                    <div className="flex flex-col items-center">
+                        <span className="text-[10px] uppercase tracking-wider opacity-60">Path Distance</span>
+                        <span className={`text-lg font-bold ${isDark ? 'text-blue-400' : 'text-orange-500'}`}>{pathLength.toFixed(2)}m</span>
+                    </div>
+                </div>
+
                 <div className="flex items-center gap-6">
                     <div className="flex items-center gap-2 bg-black/10 p-1 rounded-full border border-white/5">
                         <button
@@ -387,34 +410,9 @@ const Viewer3D = ({ onBack }) => {
                     <div className="flex-1 overflow-y-auto">
                         {/* Control Module */}
                         <SidebarCategory title="Teleoperation" icon={Sliders} defaultOpen={true} theme={theme}>
-                            {selectedPoint ? (
-                                <div className={`border rounded-lg p-4 animate-in fade-in slide-in-from-top-2 ${isDark ? 'bg-blue-900/10 border-blue-500/30' : 'bg-orange-50 border-orange-200'}`}>
-                                    <h3 className={`text-[10px] font-bold uppercase mb-3 ${isDark ? 'text-blue-400' : 'text-orange-600'}`}>Target Lock</h3>
-                                    <div className={`grid grid-cols-2 gap-2 mb-3 font-mono text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                                        <div className={`p-1.5 rounded border ${isDark ? 'bg-black/30 border-white/5' : 'bg-white border-slate-200'}`}>X: {selectedPoint.x.toFixed(2)}</div>
-                                        <div className={`p-1.5 rounded border ${isDark ? 'bg-black/30 border-white/5' : 'bg-white border-slate-200'}`}>Y: {selectedPoint.y.toFixed(2)}</div>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <button onClick={() => handleNavigate(selectedPoint)} className={`w-full py-2 rounded text-xs font-bold shadow-lg transition-all ${isDark ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-900/20' : 'bg-orange-500 hover:bg-orange-400 text-white shadow-orange-200'}`}>
-                                            INITIATE NAV
-                                        </button>
-                                        <div className="flex gap-2">
-                                            <input
-                                                value={wpName}
-                                                onChange={e => setWpName(e.target.value)}
-                                                placeholder="DESIGNATION"
-                                                className={`flex-1 border rounded px-2 text-xs focus:outline-none ${isDark ? 'bg-black/30 border-white/10 text-white placeholder-slate-600 focus:border-blue-500' : 'bg-white border-slate-200 text-slate-800 placeholder-slate-400 focus:border-orange-500'}`}
-                                            />
-                                            <button onClick={handleSaveWaypoint} className={`px-3 rounded text-xs font-bold text-white ${isDark ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-500 hover:bg-slate-400'}`}>SV</button>
-                                        </div>
-                                        <button onClick={() => setSelectedPoint(null)} className="w-full text-[10px] text-slate-500 hover:text-slate-400 mt-1">CANCEL</button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className={`text-xs text-center p-4 border border-dashed rounded opacity-50 ${isDark ? 'border-slate-700 text-slate-500' : 'border-slate-300 text-slate-400'}`}>
-                                    Select point on grid to navigate
-                                </div>
-                            )}
+                            <div className="p-4 text-xs text-slate-500 text-center italic">
+                                Use the Map to Navigate
+                            </div>
                         </SidebarCategory>
 
                         {/* Saved Locations */}
@@ -438,7 +436,7 @@ const Viewer3D = ({ onBack }) => {
                             </div>
                         </SidebarCategory>
 
-                        {/* System Status (Placeholder for more categories) */}
+                        {/* System Status */}
                         <SidebarCategory title="System Status" icon={Settings} theme={theme}>
                             <div className="space-y-2">
                                 <div className={`flex justify-between items-center text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
@@ -503,14 +501,53 @@ const Viewer3D = ({ onBack }) => {
 
                         <group rotation={[-Math.PI / 2, 0, 0]}>
                             <VoxelCloud url="ws://localhost:8000/ws/points" />
-                            <DataVisualizer url="ws://localhost:8000/ws/tf" />
+                            <DataVisualizer
+                                url="ws://localhost:8000/ws/tf"
+                                onPathUpdate={(path) => setPathLength(calculatePathLength(path))}
+                            />
                             {waypoints.map((wp, i) => <WaypointMarker key={i} wp={wp} onClick={handleNavigate} theme={theme} />)}
 
                             {selectedPoint && (
-                                <mesh position={[selectedPoint.x, selectedPoint.y, selectedPoint.z]}>
-                                    <sphereGeometry args={[0.25]} />
-                                    <meshBasicMaterial color="#ef4444" transparent opacity={0.6} wireframe />
-                                </mesh>
+                                <group position={[selectedPoint.x, selectedPoint.y, selectedPoint.z]}>
+                                    <mesh>
+                                        <sphereGeometry args={[0.25]} />
+                                        <meshBasicMaterial color="#ef4444" transparent opacity={0.6} wireframe />
+                                    </mesh>
+
+                                    {/* Navigation Popup */}
+                                    <Html position={[0, 0, 0.5]} center style={{ pointerEvents: 'auto' }}>
+                                        <div className={`w-48 p-2 rounded-lg border shadow-xl backdrop-blur-md animate-in zoom-in-50 duration-200 ${isDark ? 'bg-slate-900/90 border-blue-500/50 text-white' : 'bg-white/90 border-orange-500/50 text-slate-800'}`}>
+                                            <div className="text-[10px] font-mono opacity-50 mb-1 border-b pb-1 border-white/10 uppercase tracking-wider text-center">Location Target</div>
+                                            <div className="flex justify-between text-[10px] font-mono mb-2 px-2">
+                                                <span>X: {selectedPoint.x.toFixed(1)}</span>
+                                                <span>Y: {selectedPoint.y.toFixed(1)}</span>
+                                            </div>
+                                            <button
+                                                onClick={() => handleNavigate(selectedPoint)}
+                                                className={`w-full py-1.5 rounded text-xs font-bold mb-2 shadow-lg hover:scale-105 active:scale-95 transition-all ${isDark ? 'bg-blue-600 hover:bg-blue-500' : 'bg-orange-500 hover:bg-orange-400'} text-white`}
+                                            >
+                                                Navigate Here
+                                            </button>
+                                            <div className="flex gap-1">
+                                                <input
+                                                    value={wpName}
+                                                    onChange={e => setWpName(e.target.value)}
+                                                    placeholder="Name..."
+                                                    className={`flex-1 text-[10px] px-1 rounded border bg-transparent focus:outline-none ${isDark ? 'border-white/20 focus:border-blue-500' : 'border-slate-300 focus:border-orange-500'}`}
+                                                />
+                                                <button onClick={handleSaveWaypoint} className={`px-2 py-0.5 rounded text-[10px] font-bold ${isDark ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}>
+                                                    Save
+                                                </button>
+                                            </div>
+                                            <button
+                                                onClick={() => setSelectedPoint(null)}
+                                                className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-400 rounded-full text-white text-[10px] font-bold shadow-md flex items-center justify-center"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    </Html>
+                                </group>
                             )}
                         </group>
 

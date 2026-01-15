@@ -63,7 +63,7 @@ class Waypoint(BaseModel):
 
 class ROSNode(Node):
     def __init__(self):
-        super().__init__('web_viz_backend')
+        super().__init__('mission_planner_ui_backend')
         
         # TF Buffer
         self.tf_buffer = Buffer()

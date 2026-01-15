@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Line, Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { ChevronDown, ChevronRight, Video, MapPin, Sliders, Settings, Sun, Moon, Layout } from 'lucide-react';
+import { ChevronDown, ChevronRight, Video, MapPin, Sliders, Settings, Sun, Moon, Layout, ArrowUp } from 'lucide-react';
 
 // --- Configuration ---
 const VOXEL_SIZE = 0.18;
@@ -273,6 +273,9 @@ const Viewer3D = ({ onBack }) => {
     const [wpName, setWpName] = useState("");
     const [currentTheme, setCurrentTheme] = useState('dark');
 
+    const controlsRef = useRef();
+    const prevViewRef = useRef(null);
+
     const theme = THEMES[currentTheme];
     const isDark = currentTheme === 'dark';
 
@@ -284,6 +287,32 @@ const Viewer3D = ({ onBack }) => {
         const interval = setInterval(fetchWps, 2000);
         return () => clearInterval(interval);
     }, []);
+
+    const toggleTopView = () => {
+        if (!controlsRef.current) return;
+        const controls = controlsRef.current;
+        const camera = controls.object;
+
+        if (prevViewRef.current) {
+            // Restore
+            const { position, target } = prevViewRef.current;
+            camera.position.copy(position);
+            controls.target.copy(target);
+            prevViewRef.current = null;
+        } else {
+            // Save
+            prevViewRef.current = {
+                position: camera.position.clone(),
+                target: controls.target.clone()
+            };
+            // Top View
+            const target = controls.target;
+            camera.position.set(target.x, target.y + 15, target.z + 0.1);
+            controls.target.set(target.x, target.y, target.z);
+        }
+        controls.update();
+    };
+
 
     const handleNavigate = (point) => {
         fetch('http://localhost:8000/navigate', {
@@ -343,7 +372,7 @@ const Viewer3D = ({ onBack }) => {
                     <div className={`flex items-center gap-4 text-xs font-mono ${isDark ? 'text-blue-300/80' : 'text-slate-500'}`}>
                         <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-green-500 rounded-full shadow-[0_0_5px_lime]"></div> ONLINE</span>
                         <span className="opacity-50">|</span>
-                        <span>V.2.1.0</span>
+                        <span>v1.0.0</span>
                     </div>
                 </div>
             </header>
@@ -442,6 +471,17 @@ const Viewer3D = ({ onBack }) => {
                         </div>
                     </div>
 
+                    {/* Top View Toggle */}
+                    <div className="absolute top-4 right-4 z-20 flex flex-col gap-2">
+                        <button
+                            onClick={toggleTopView}
+                            className={`p-2 rounded-lg backdrop-blur-md border shadow-lg transition-all ${isDark ? 'bg-black/40 border-white/10 text-blue-300 hover:bg-black/60 hover:text-white' : 'bg-white/60 border-slate-200 text-slate-600 hover:bg-white hover:text-slate-900'}`}
+                            title="Toggle Top View"
+                        >
+                            <ArrowUp size={20} />
+                        </button>
+                    </div>
+
                     {/* Camera Feed Overlay - Bottom Right */}
                     <div className="absolute bottom-6 right-6 z-20 flex flex-col items-end gap-2">
                         <div className={`text-[10px] font-bold uppercase tracking-wider mb-1 px-2 py-0.5 rounded backdrop-blur-md border ${isDark ? 'text-slate-400 bg-black/40 border-white/5' : 'text-slate-600 bg-white/60 border-slate-200'}`}>
@@ -475,7 +515,7 @@ const Viewer3D = ({ onBack }) => {
                         </group>
 
                         <InteractionPlane onPointSelected={setSelectedPoint} />
-                        <OrbitControls makeDefault minPolarAngle={0} maxPolarAngle={Math.PI / 1.7} />
+                        <OrbitControls ref={controlsRef} makeDefault minPolarAngle={0} maxPolarAngle={Math.PI / 1.7} />
                     </Canvas>
                 </div>
             </div>

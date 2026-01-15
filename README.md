@@ -135,6 +135,47 @@ The cyan lines show the **visibility graph** - navigation nodes that can "see" e
 
 ---
 
+## Mission Planning UI
+
+A modern, web-based interface is provided for high-level mission control and telemetry visualization.
+
+<p align="center">
+  <img src="docs/images/Mission_Planner_UI.png" alt="Mission Planner UI" width="800" />
+</p>
+
+### Frontend Features
+- **Interactive Map**: Point-and-click interface to set navigation goals on the global map.
+- **Waypoint Management**: specific locations can be saved, named, and recalled from a persistent list.
+- **Live Video Feed**: Low-latency video streaming from the robot's camera.
+- **Teleoperation**: Virtual joystick for manual control overrides.
+
+### Backend Architecture
+The backend uses **FastAPI** to bridge ROS2 topics with the web frontend via WebSockets.
+
+- **Technology**: Python (FastAPI, Uvicorn), AsyncIO.
+- **Real-time Data**:
+  - `/ws/points` &rarr; Stream of voxelized point clouds.
+  - `/ws/tf` &rarr; Robot pose and map transforms.
+  - `/ws/video` &rarr; JPEG-encoded camera stream.
+- **Persistence**: `waypoints.json` stores user-defined locations.
+
+---
+
+## Voxelized Point Cloud
+
+To ensure smooth performance on the web interface, the high-density SLAM point cloud is downsampled before transmission.
+
+### Overview
+- **Node**: `voxel_grid_node` (C++)
+- **Function**: Applies a PCL VoxelGrid filter to reduce point count (~10x reduction) while preserving structural features.
+- **Topic Flow**:
+  - Input: `/registered_scan_o3d` (High density from SLAM)
+  - Output: `/registered_scan_o3d/voxelized` (Optimized for Web UI)
+- **Configuration**:
+  - `voxel_size`: Default `0.1m` (balances bandwidth vs. detail).
+
+---
+
 ## Quick Start
 
 ### Prerequisites

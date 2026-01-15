@@ -44,17 +44,13 @@ Visualization Manager:
               Value: true
             base_link:
               Value: true
-            imu:
-              Value: true
             livox_frame:
+              Value: true
+            livox_imu:
               Value: true
             map:
               Value: true
-            map_o3d:
-              Value: true
             odom_dlio:
-              Value: true
-            sensor:
               Value: true
           Marker Scale: 5
           Name: tf tree
@@ -62,15 +58,14 @@ Visualization Manager:
           Show Axes: true
           Show Names: true
           Tree:
-            base_link:
-              base_footprint:
-                imu:
-                  {}
+            base_footprint:
+              base_link:
                 livox_frame:
                   odom_dlio:
-                    {}
-                  sensor:
-                    {}
+                    map:
+                      {}
+                livox_imu:
+                  {}
           Update Interval: 0
           Value: true
         - Class: rviz_default_plugins/Axes
@@ -94,8 +89,8 @@ Visualization Manager:
         - Alpha: 1
           Autocompute Intensity Bounds: false
           Autocompute Value Bounds:
-            Max Value: 10.538320541381836
-            Min Value: -2.026426315307617
+            Max Value: 5.365326881408691
+            Min Value: -1.4678200483322144
             Value: true
           Axis: Z
           Channel Name: intensity
@@ -121,7 +116,7 @@ Visualization Manager:
             Filter size: 10
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /dlio_registered_scan
+            Value: /registered_scan
           Use Fixed Frame: true
           Use rainbow: true
           Value: true
@@ -333,7 +328,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 15.07697868347168
+      Distance: 12.011634826660156
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -348,10 +343,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.5200003981590271
+      Pitch: 0.37000083923339844
       Target Frame: base_link
       Value: Orbit (rviz_default_plugins)
-      Yaw: 2.0799918174743652
+      Yaw: 5.798175811767578
     Saved: ~
 Window Geometry:
   Displays:

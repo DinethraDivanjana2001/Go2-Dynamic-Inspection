@@ -30,7 +30,7 @@ WORKSPACE_ROOT="$(dirname "$SCRIPT_DIR")"
 WORLD_FILE="/home/yasiru/world.world"
 GAZEBO_WAIT_TIME=15
 SKIP_GAZEBO=false
-LAUNCH_FILE="pipeline_simulation.launch.py"
+LAUNCH_FILE="pipeline_real.launch.py"
 
 # Process IDs for cleanup
 GAZEBO_PID=""
@@ -176,7 +176,7 @@ sleep 3
 
 echo "Publishing static transforms..."
 # ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 livox_frame sensor &
-ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 map_o3d map &
+ros2 run tf2_ros static_transform_publisher 0 0 0.25 0 0 0 base_footprint base_link &
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

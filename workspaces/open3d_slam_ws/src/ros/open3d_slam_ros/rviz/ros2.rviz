@@ -4,8 +4,9 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /Submap Origins1
+        - /Global Options1
         - /Registration Updates1/Topic1
+        - /assembledMap1
         - /O3D_odometry1/Shape1
         - /GMSF_odom1/Shape1
       Splitter Ratio: 0.5703703761100769
@@ -75,19 +76,17 @@ Visualization Manager:
       Frame Timeout: 50
       Frames:
         All Enabled: false
-        base_link:
+        base_footprint:
           Value: true
-        imu:
+        base_link:
           Value: true
         livox_frame:
           Value: true
+        livox_imu:
+          Value: true
         map:
           Value: true
-        map_o3d:
-          Value: true
         odom_dlio:
-          Value: true
-        sensor:
           Value: true
       Marker Scale: 1
       Name: TF
@@ -95,17 +94,14 @@ Visualization Manager:
       Show Axes: true
       Show Names: false
       Tree:
-        base_link:
-          imu:
-            {}
-          livox_frame:
-            odom_dlio:
+        base_footprint:
+          base_link:
+            livox_frame:
+              odom_dlio:
+                map:
+                  {}
+            livox_imu:
               {}
-            sensor:
-              {}
-        map_o3d:
-          map:
-            {}
       Update Interval: 0
       Value: true
     - Alpha: 1
@@ -220,7 +216,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /registered_scan
+        Value: /registered_scan_o3d
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
@@ -399,7 +395,7 @@ Visualization Manager:
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0
-    Fixed Frame: map_o3d
+    Fixed Frame: map
     Frame Rate: 60
   Name: root
   Tools:
@@ -449,9 +445,9 @@ Visualization Manager:
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 3.4386942386627197
-        Y: 8.069664001464844
-        Z: -0.643004298210144
+        X: -0.31651249527931213
+        Y: -1.3796391487121582
+        Z: -1.3363505601882935
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false

@@ -56,7 +56,7 @@ def generate_launch_description() -> LaunchDescription:
 
     dlio = create_dlio_launch(
         delay=timing.dlio,
-        rviz="false",
+        rviz="true",
         pointcloud_topic=TOPICS_LIVOX.pointcloud,
         imu_topic=TOPICS_LIVOX.imu,
     )
@@ -64,7 +64,7 @@ def generate_launch_description() -> LaunchDescription:
     open3d_slam = create_open3d_slam_launch(
         delay=timing.open3d_slam,
         use_sim_time="false",
-        launch_rviz="false",
+        launch_rviz="true",
         cloud_topic=TOPICS_DLIO_OUTPUT.pointcloud,
         odometry_topic=TOPICS_DLIO_OUTPUT.odometry,
     )

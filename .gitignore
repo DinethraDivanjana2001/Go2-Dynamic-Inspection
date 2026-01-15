@@ -7,6 +7,10 @@ log/
 !workspaces/autonomous_exploration/src/vehicle_simulator/log/
 !workspaces/autonomous_exploration/src/vehicle_simulator/log/**
 
+# But keep important log folder in go2_simulator
+!workspaces/autonomous_exploration/src/go2_simulator/log/
+!workspaces/autonomous_exploration/src/go2_simulator/log/**
+
 # Python
 __pycache__/
 *.py[cod]

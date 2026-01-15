@@ -21,6 +21,7 @@ env/
 venv/
 ENV/
 Evaluation
+logo
 
 # IDE
 .vscode/

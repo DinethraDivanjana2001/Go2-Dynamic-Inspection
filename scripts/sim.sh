@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Default values
-WORLD_FILE="/home/yasiru/world.world"
+WORLD_FILE="/home/yasiru/world2.world"
 GAZEBO_WAIT_TIME=15
 SKIP_GAZEBO=false
 LAUNCH_FILE="pipeline_real.launch.py"
@@ -98,6 +98,7 @@ WORKSPACES=(
     "dlio"
     "open3d_slam_ws"
     "pipeline_launcher"
+    "unitree_sim_ws"
 )
 
 

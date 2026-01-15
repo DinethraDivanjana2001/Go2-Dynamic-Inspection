@@ -24,6 +24,12 @@ from tf2_ros.transform_listener import TransformListener
 from rclpy.time import Time
 from rclpy.duration import Duration
 
+# Camera & Image
+import cv2
+from cv_bridge import CvBridge
+import base64
+from sensor_msgs.msg import Image
+
 # Initialize FastAPI
 app = FastAPI()
 
@@ -58,28 +64,6 @@ class Waypoint(BaseModel):
 class ROSNode(Node):
     def __init__(self):
         super().__init__('web_viz_backend')
-        self.subscription_pc = self.create_subscription(
-            PointCloud2,
-            '/registered_scan_o3d/voxelized',
-            self.pc_callback,
-            10
-        )
-        self.subscription_marker = self.create_subscription(
-            Marker,
-            '/viz_path_topic',
-            self.marker_callback,
-            10
-        )
-        self.subscription_odom = self.create_subscription(
-            Odometry,
-            '/state_estimation',
-            self.odom_callback,
-            10
-        )
-        
-        # Publishers for Goal Interaction
-        self.pub_goal = self.create_publisher(PointStamped, '/goal_point', 5)
-        self.pub_joy = self.create_publisher(Joy, '/joy', 5)
         
         # TF Buffer
         self.tf_buffer = Buffer()
@@ -94,11 +78,13 @@ class ROSNode(Node):
         # Publishers
         self.goal_pub = self.create_publisher(PointStamped, '/goal_point', 10)
         self.joy_pub = self.create_publisher(Joy, '/joy', 10)
-
+        
+        # TF Buffer
         # State
         self.latest_points = None
         self.latest_path = []
         self.vehicle_z = 0.0
+        self.latest_odom = None
         self.latest_frame = None # JPEG bytes
         self.bridge = CvBridge()
         
@@ -128,6 +114,7 @@ class ROSNode(Node):
 
     def odom_callback(self, msg):
         self.vehicle_z = msg.pose.pose.position.z
+        self.latest_odom = msg
 
     def image_callback(self, msg):
         try:
@@ -205,16 +192,17 @@ async def websocket_tf(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05) # 20Hz Update
             
             if not ros_node:
                 continue
 
             tfs_snapshot = {}
+            # 1. Try Standard TF Lookup
             for child in TARGET_FRAMES:
                 try:
                     t = ros_node.tf_buffer.lookup_transform(
-                        "map",
+                        "camera_init", # Often the map frame in LIO
                         child,
                         Time(),
                         Duration(seconds=0.0) 
@@ -235,6 +223,16 @@ async def websocket_tf(websocket: WebSocket):
                 except:
                     pass
             
+            # 2. Fallback: If base_link missing, use Odometry
+            # (Assuming base_link is the robot body)
+            if "base_link" not in tfs_snapshot and ros_node.latest_odom:
+                 p = ros_node.latest_odom.pose.pose.position
+                 q = ros_node.latest_odom.pose.pose.orientation
+                 tfs_snapshot["base_link"] = {
+                    "translation": {"x": p.x, "y": p.y, "z": p.z},
+                    "rotation": {"x": q.x, "y": q.y, "z": q.z, "w": q.w}
+                 }
+
             data_packet = {
                 "tfs": tfs_snapshot,
                 "path": []

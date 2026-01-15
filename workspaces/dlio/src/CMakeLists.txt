@@ -29,14 +29,16 @@ find_package(pcl_ros REQUIRED)
 find_package(PCL REQUIRED)
 find_package( Eigen3 REQUIRED )
 find_package(Threads REQUIRED)
-find_package(CUDA REQUIRED)
+# find_package(CUDA REQUIRED) - Removed in favor of native support
 
 set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CUDA_STANDARD 17)
 
-# CUDA architecture for RTX 2060 (Turing - compute capability 7.5)
-set(CMAKE_CUDA_ARCHITECTURES 75)
+# CUDA architecture (default to 75 if not set)
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  set(CMAKE_CUDA_ARCHITECTURES 75)
+endif()
 
 # CUDA compilation flags for CUDA 12.6+
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr --extended-lambda")
@@ -57,7 +59,7 @@ rosidl_get_typesupport_target(cpp_typesupport_target
 
 include_directories(${PCL_INCLUDE_DIRS})
 include_directories(${EIGEN3_INCLUDE_DIR})
-include_directories(${CUDA_INCLUDE_DIRS})
+# include_directories(${CUDA_INCLUDE_DIRS}) - Removed
 
 include_directories(include)
 include_directories(SYSTEM)
@@ -80,14 +82,14 @@ set_target_properties(cuda_modules PROPERTIES
   CUDA_SEPARABLE_COMPILATION ON
   CUDA_RESOLVE_DEVICE_SYMBOLS ON
   POSITION_INDEPENDENT_CODE ON
-  CUDA_STANDARD 14
+  CUDA_STANDARD 17
 )
 target_include_directories(cuda_modules PRIVATE 
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${PCL_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIR}
 )
-target_link_libraries(cuda_modules ${CUDA_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(cuda_modules ${PCL_LIBRARIES})
 
 # NanoGICP
 add_library(nano_gicp STATIC
@@ -95,12 +97,12 @@ add_library(nano_gicp STATIC
   src/nano_gicp/nano_gicp.cc
   src/nano_gicp/gpu_accelerator.cc
 )
-target_link_libraries(nano_gicp ${PCL_LIBRARIES} ${OpenMP_LIBS} nanoflann cuda_modules ${CUDA_LIBRARIES})
+target_link_libraries(nano_gicp ${PCL_LIBRARIES} ${OpenMP_LIBS} nanoflann cuda_modules)
 ament_target_dependencies(nano_gicp)
 
 # Odometry Node
 add_executable(dlio_odom_node src/dlio/odom_node.cc src/dlio/odom.cc src/nano_gicp/gpu_accelerator_dlio.cc)
-target_link_libraries(dlio_odom_node ${PCL_LIBRARIES} ${OpenMP_LIBS} Threads::Threads nano_gicp cuda_modules ${CUDA_LIBRARIES})
+target_link_libraries(dlio_odom_node ${PCL_LIBRARIES} ${OpenMP_LIBS} Threads::Threads nano_gicp cuda_modules)
 ament_target_dependencies(dlio_odom_node "tf2_ros" "pcl_ros" "nav_msgs" "pcl_conversions" "rclcpp" "sensor_msgs" "geometry_msgs")
 
 # Mapping Node
@@ -121,7 +123,9 @@ install( DIRECTORY cfg launch
          DESTINATION share/${PROJECT_NAME} 
 )
 
-add_compile_options(-std=c++14)
+# Compiler optimization flags
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native")
+
 link_directories(${PCL_LIBRARY_DIRS})
 
 include(FindOpenMP)

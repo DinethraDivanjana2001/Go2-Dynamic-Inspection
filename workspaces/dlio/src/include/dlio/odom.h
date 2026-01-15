@@ -363,4 +363,12 @@ private:
   double geo_abias_max_;
   double geo_gbias_max_;
 
+  // Constants for magic numbers
+  static constexpr double SPACIOUSNESS_LPF_ALPHA = 0.95;
+  static constexpr double DENSITY_LPF_ALPHA = 0.95;
+  static constexpr int MAX_TRAJECTORY_SIZE = 10000;
+  static constexpr int MAX_METRICS_SIZE = 10000;
+  static constexpr int MAX_COMP_TIMES_SIZE = 1000;
+  static constexpr int MAX_CPU_PERCENTS_SIZE = 1000;
+
 };

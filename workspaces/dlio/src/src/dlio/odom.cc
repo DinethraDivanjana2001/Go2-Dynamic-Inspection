@@ -94,7 +94,7 @@ dlio::OdomNode::OdomNode() : Node("dlio_odom_node") {
 
   this->first_scan_stamp = 0.;
   this->elapsed_time = 0.;
-  this->length_traversed;
+  this->length_traversed = 0.;
 
   this->convex_hull.setDimension(3);
   this->concave_hull.setDimension(3);
@@ -343,20 +343,18 @@ void dlio::OdomNode::publishPose() {
 
   this->odom_pub->publish(this->odom_ros);
 
+  // OPTIMIZATION: Redundant pose publisher disabled (same info in odometry)
   // geometry_msgs::msg::PoseStamped
-  this->pose_ros.header.stamp = this->imu_stamp;
-  this->pose_ros.header.frame_id = this->odom_frame;
-
-  this->pose_ros.pose.position.x = this->state.p[0];
-  this->pose_ros.pose.position.y = this->state.p[1];
-  this->pose_ros.pose.position.z = this->state.p[2];
-
-  this->pose_ros.pose.orientation.w = this->state.q.w();
-  this->pose_ros.pose.orientation.x = this->state.q.x();
-  this->pose_ros.pose.orientation.y = this->state.q.y();
-  this->pose_ros.pose.orientation.z = this->state.q.z();
-
-  this->pose_pub->publish(this->pose_ros);
+  // this->pose_ros.header.stamp = this->imu_stamp;
+  // this->pose_ros.header.frame_id = this->odom_frame;
+  // this->pose_ros.pose.position.x = this->state.p[0];
+  // this->pose_ros.pose.position.y = this->state.p[1];
+  // this->pose_ros.pose.position.z = this->state.p[2];
+  // this->pose_ros.pose.orientation.w = this->state.q.w();
+  // this->pose_ros.pose.orientation.x = this->state.q.x();
+  // this->pose_ros.pose.orientation.y = this->state.q.y();
+  // this->pose_ros.pose.orientation.z = this->state.q.z();
+  // this->pose_pub->publish(this->pose_ros);
 
 }
 
@@ -387,15 +385,6 @@ void dlio::OdomNode::publishToROS(pcl::PointCloud<PointType>::ConstPtr published
   transformStamped.header.stamp = this->imu_stamp;
   transformStamped.header.frame_id = this->lidar_frame;
   transformStamped.child_frame_id = this->odom_frame;
-
-  // transformStamped.transform.translation.x = -this->state.p[0];
-  // transformStamped.transform.translation.y = -this->state.p[1];
-  // transformStamped.transform.translation.z = -this->state.p[2];
-
-  // transformStamped.transform.rotation.w = -this->state.q.w();
-  // transformStamped.transform.rotation.x = -this->state.q.x();
-  // transformStamped.transform.rotation.y = -this->state.q.y();
-  // transformStamped.transform.rotation.z = -this->state.q.z();
 
   // Get the rotation matrix from the quaternion
   Eigen::Matrix3f R = this->state.q.toRotationMatrix();
@@ -805,14 +794,15 @@ void dlio::OdomNode::callbackPointCloud(const sensor_msgs::msg::PointCloud2::Sha
     return;
   }
 
+  // OPTIMIZATION: Metrics computation disabled for real-time performance
   // Compute Metrics
-  this->metrics_thread = std::thread( &dlio::OdomNode::computeMetrics, this );
-  this->metrics_thread.detach();
+  // this->metrics_thread = std::thread( &dlio::OdomNode::computeMetrics, this );
+  // this->metrics_thread.detach();
 
-  // Set Adaptive Parameters
-  if (this->adaptive_params_) {
-    this->setAdaptiveParams();
-  }
+  // Set Adaptive Parameters (disabled - using fixed parameters for better performance)
+  // if (this->adaptive_params_) {
+  //   this->setAdaptiveParams();
+  // }
 
   // Set new frame as input source
   this->setInputSource();
@@ -845,8 +835,11 @@ void dlio::OdomNode::callbackPointCloud(const sensor_msgs::msg::PointCloud2::Sha
     this->submap_build_cv.notify_one();
   }
 
-  // Update trajectory
+  // Update trajectory (with bounded size to prevent unbounded growth)
   this->trajectory.push_back( std::make_pair(this->state.p, this->state.q) );
+  if (this->trajectory.size() > MAX_TRAJECTORY_SIZE) {
+    this->trajectory.erase(this->trajectory.begin());
+  }
 
   // Update time stamps
   this->lidar_rates.push_back( 1. / (this->scan_stamp - this->prev_scan_stamp) );
@@ -863,13 +856,17 @@ void dlio::OdomNode::callbackPointCloud(const sensor_msgs::msg::PointCloud2::Sha
   this->publish_thread = std::thread( &dlio::OdomNode::publishToROS, this, published_cloud, this->T_corr );
   this->publish_thread.detach();
 
-  // Update some statistics
+  // Update some statistics (with bounded size to prevent unbounded growth)
   this->comp_times.push_back(this->now().seconds() - then);
+  if (this->comp_times.size() > MAX_COMP_TIMES_SIZE) {
+    this->comp_times.erase(this->comp_times.begin());
+  }
   this->gicp_hasConverged = this->gicp.hasConverged();
 
+  // OPTIMIZATION: Debug thread disabled for real-time performance
   // Debug statements and publish custom DLIO message
-  this->debug_thread = std::thread( &dlio::OdomNode::debug, this );
-  this->debug_thread.detach();
+  // this->debug_thread = std::thread( &dlio::OdomNode::debug, this );
+  // this->debug_thread.detach();
 
   this->geo.first_opt_done = true;
 
@@ -1440,10 +1437,11 @@ void dlio::OdomNode::computeSpaciousness() {
 
   // compute range of points
   std::vector<float> ds;
+  ds.reserve(this->original_scan->points.size());
 
-  for (int i = 0; i <= this->original_scan->points.size(); i++) {
-    float d = std::sqrt(pow(this->original_scan->points[i].x, 2) +
-                        pow(this->original_scan->points[i].y, 2));
+  for (int i = 0; i < this->original_scan->points.size(); i++) {
+    float d = std::sqrt(this->original_scan->points[i].x * this->original_scan->points[i].x +
+                        this->original_scan->points[i].y * this->original_scan->points[i].y);
     ds.push_back(d);
   }
 
@@ -1451,11 +1449,14 @@ void dlio::OdomNode::computeSpaciousness() {
   std::nth_element(ds.begin(), ds.begin() + ds.size()/2, ds.end());
   float median_curr = ds[ds.size()/2];
   static float median_prev = median_curr;
-  float median_lpf = 0.95*median_prev + 0.05*median_curr;
+  float median_lpf = SPACIOUSNESS_LPF_ALPHA*median_prev + (1.0 - SPACIOUSNESS_LPF_ALPHA)*median_curr;
   median_prev = median_lpf;
 
-  // push
+  // push (with bounded size to prevent unbounded growth)
   this->metrics.spaciousness.push_back( median_lpf );
+  if (this->metrics.spaciousness.size() > MAX_METRICS_SIZE) {
+    this->metrics.spaciousness.erase(this->metrics.spaciousness.begin());
+  }
 
 }
 
@@ -1470,10 +1471,14 @@ void dlio::OdomNode::computeDensity() {
   }
 
   static float density_prev = density;
-  float density_lpf = 0.95*density_prev + 0.05*density;
+  float density_lpf = DENSITY_LPF_ALPHA*density_prev + (1.0 - DENSITY_LPF_ALPHA)*density;
   density_prev = density_lpf;
 
+  // push (with bounded size to prevent unbounded growth)
   this->metrics.density.push_back( density_lpf );
+  if (this->metrics.density.size() > MAX_METRICS_SIZE) {
+    this->metrics.density.erase(this->metrics.density.begin());
+  }
 
 }
 
@@ -1563,9 +1568,9 @@ void dlio::OdomNode::updateKeyframes() {
   for (const auto& k : this->keyframes) {
 
     // calculate distance between current pose and pose in keyframes
-    float delta_d = sqrt( pow(this->state.p[0] - k.first.first[0], 2) +
-                          pow(this->state.p[1] - k.first.first[1], 2) +
-                          pow(this->state.p[2] - k.first.first[2], 2) );
+    float delta_d = sqrt( (this->state.p[0] - k.first.first[0]) * (this->state.p[0] - k.first.first[0]) +
+                          (this->state.p[1] - k.first.first[1]) * (this->state.p[1] - k.first.first[1]) +
+                          (this->state.p[2] - k.first.first[2]) * (this->state.p[2] - k.first.first[2]) );
 
     // count the number nearby current pose
     if (delta_d <= this->keyframe_thresh_dist_ * 1.5){
@@ -1587,9 +1592,9 @@ void dlio::OdomNode::updateKeyframes() {
   Eigen::Quaternionf closest_pose_r = this->keyframes[closest_idx].first.second;
 
   // calculate distance between current pose and closest pose from above
-  float dd = sqrt( pow(this->state.p[0] - closest_pose[0], 2) +
-                   pow(this->state.p[1] - closest_pose[1], 2) +
-                   pow(this->state.p[2] - closest_pose[2], 2) );
+  float dd = sqrt( (this->state.p[0] - closest_pose[0]) * (this->state.p[0] - closest_pose[0]) +
+                   (this->state.p[1] - closest_pose[1]) * (this->state.p[1] - closest_pose[1]) +
+                   (this->state.p[2] - closest_pose[2]) * (this->state.p[2] - closest_pose[2]) );
 
   // calculate difference in orientation using SLERP
   Eigen::Quaternionf dq;
@@ -1602,7 +1607,7 @@ void dlio::OdomNode::updateKeyframes() {
     dq = this->state.q * closest_pose_r.inverse();
   }
 
-  double theta_rad = 2. * atan2(sqrt( pow(dq.x(), 2) + pow(dq.y(), 2) + pow(dq.z(), 2) ), dq.w());
+  double theta_rad = 2. * atan2(sqrt( dq.x()*dq.x() + dq.y()*dq.y() + dq.z()*dq.z() ), dq.w());
   double theta_deg = theta_rad * (180.0/M_PI);
 
   // update keyframes
@@ -1697,10 +1702,12 @@ void dlio::OdomNode::buildSubmap(State vehicle_state) {
   std::unique_lock<decltype(this->keyframes_mutex)> lock(this->keyframes_mutex);
   std::vector<float> ds;
   std::vector<int> keyframe_nn;
+  ds.reserve(this->num_processed_keyframes);
+  keyframe_nn.reserve(this->num_processed_keyframes);
   for (int i = 0; i < this->num_processed_keyframes; i++) {
-    float d = sqrt( pow(vehicle_state.p[0] - this->keyframes[i].first.first[0], 2) +
-                    pow(vehicle_state.p[1] - this->keyframes[i].first.first[1], 2) +
-                    pow(vehicle_state.p[2] - this->keyframes[i].first.first[2], 2) );
+    float d = sqrt( (vehicle_state.p[0] - this->keyframes[i].first.first[0]) * (vehicle_state.p[0] - this->keyframes[i].first.first[0]) +
+                    (vehicle_state.p[1] - this->keyframes[i].first.first[1]) * (vehicle_state.p[1] - this->keyframes[i].first.first[1]) +
+                    (vehicle_state.p[2] - this->keyframes[i].first.first[2]) * (vehicle_state.p[2] - this->keyframes[i].first.first[2]) );
     ds.push_back(d);
     keyframe_nn.push_back(i);
   }
@@ -1753,17 +1760,18 @@ void dlio::OdomNode::buildSubmap(State vehicle_state) {
     pcl::PointCloud<PointType>::Ptr submap_cloud_ = std::make_shared<pcl::PointCloud<PointType>>();
     std::shared_ptr<nano_gicp::CovarianceList> submap_normals_ (std::make_shared<nano_gicp::CovarianceList>());
 
+    // Lock once for the entire loop instead of per iteration
+    lock.lock();
     for (auto k : this->submap_kf_idx_curr) {
 
       // create current submap cloud
-      lock.lock();
       *submap_cloud_ += *this->keyframes[k].second;
-      lock.unlock();
 
       // grab corresponding submap cloud's normals
       submap_normals_->insert( std::end(*submap_normals_),
           std::begin(*(this->keyframe_normals[k])), std::end(*(this->keyframe_normals[k])) );
     }
+    lock.unlock();
 
     this->submap_cloud = submap_cloud_;
     this->submap_normals = submap_normals_;
@@ -1804,8 +1812,9 @@ void dlio::OdomNode::buildKeyframesAndSubmap(State vehicle_state) {
     this->keyframes[i].second = transformed_keyframe;
     this->keyframe_normals[i] = transformed_covariances;
 
-    this->publish_keyframe_thread = std::thread( &dlio::OdomNode::publishKeyframe, this, this->keyframes[i], this->keyframe_timestamps[i] );
-    this->publish_keyframe_thread.detach();
+    // OPTIMIZATION: Keyframe cloud publishing disabled for real-time performance
+    // this->publish_keyframe_thread = std::thread( &dlio::OdomNode::publishKeyframe, this, this->keyframes[i], this->keyframe_timestamps[i] );
+    // this->publish_keyframe_thread.detach();
   }
 
   lock.unlock();
@@ -1833,7 +1842,9 @@ void dlio::OdomNode::debug() {
       continue;
     }
     p_curr = t.first;
-    double l = sqrt(pow(p_curr[0] - p_prev[0], 2) + pow(p_curr[1] - p_prev[1], 2) + pow(p_curr[2] - p_prev[2], 2));
+    double l = sqrt((p_curr[0] - p_prev[0]) * (p_curr[0] - p_prev[0]) + 
+                    (p_curr[1] - p_prev[1]) * (p_curr[1] - p_prev[1]) + 
+                    (p_curr[2] - p_prev[2]) * (p_curr[2] - p_prev[2]));
 
     if (l >= 0.1) {
       length_traversed += l;
@@ -1902,6 +1913,9 @@ void dlio::OdomNode::debug() {
   this->lastSysCPU = timeSample.tms_stime;
   this->lastUserCPU = timeSample.tms_utime;
   this->cpu_percents.push_back(cpu_percent);
+  if (this->cpu_percents.size() > MAX_CPU_PERCENTS_SIZE) {
+    this->cpu_percents.erase(this->cpu_percents.begin());
+  }
   double avg_cpu_usage =
     std::accumulate(this->cpu_percents.begin(), this->cpu_percents.end(), 0.0) / this->cpu_percents.size();
 
@@ -1995,9 +2009,9 @@ void dlio::OdomNode::debug() {
     << "|" << std::endl;
   std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
     << "Distance to Origin :: "
-      + to_string_with_precision( sqrt(pow(this->state.p[0]-this->origin[0],2) +
-                                       pow(this->state.p[1]-this->origin[1],2) +
-                                       pow(this->state.p[2]-this->origin[2],2)), 4) + " meters"
+      + to_string_with_precision( sqrt((this->state.p[0]-this->origin[0])*(this->state.p[0]-this->origin[0]) +
+                                       (this->state.p[1]-this->origin[1])*(this->state.p[1]-this->origin[1]) +
+                                       (this->state.p[2]-this->origin[2])*(this->state.p[2]-this->origin[2])), 4) + " meters"
     << "|" << std::endl;
   std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
     << "Registration       :: keyframes: " + std::to_string(this->keyframes.size()) + ", "

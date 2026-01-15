@@ -9,6 +9,11 @@
 # Contact: {kennyjchen, ryguyn, btlopez}@ucla.edu         #
 #                                                         #
 ###########################################################
+# OPTIMIZED FOR REAL-TIME PERFORMANCE
+# - Odometry + Path + Registered Scan only
+# - Adaptive parameters disabled (fixed for speed)
+# - Metrics/Debug disabled
+###########################################################
 
 /**:
   ros__parameters:
@@ -18,8 +23,9 @@
     frames/lidar: livox_frame
     frames/imu: livox_imu
 
-    map/waitUntilMove: true
-    map/dense/filtered: false
+    # Map settings - optimized for real-time
+    map/waitUntilMove: false         # Publish immediately (no delay)
+    map/dense/filtered: true         # Use filtered scan (smaller, faster)
     map/sparse/leafSize: 0.25
 
     odom/gravity: 9.80665
@@ -29,17 +35,21 @@
     odom/imu/calibration/gyro: true
     odom/imu/calibration/accel: true
     odom/imu/calibration/time: 3.0
-    odom/imu/bufferSize: 5000
+    odom/imu/bufferSize: 2000        # Reduced from 5000 for memory efficiency
 
     odom/preprocessing/cropBoxFilter/size: 1.0
     odom/preprocessing/voxelFilter/res: 0.25
 
+    # Keyframe thresholds - reasonable defaults
     odom/keyframe/threshD: 1.0
     odom/keyframe/threshR: 45.0
 
+    # Submap settings - optimized values
     odom/submap/keyframe/knn: 10
     odom/submap/keyframe/kcv: 10
     odom/submap/keyframe/kcc: 10
+    
+    # GICP parameters - FIXED for consistency (adaptive disabled)
     odom/gicp/minNumPoints: 64
     odom/gicp/kCorrespondences: 16
     odom/gicp/maxCorrespondenceDistance: 0.5
@@ -48,6 +58,7 @@
     odom/gicp/rotationEpsilon: 0.01
     odom/gicp/initLambdaFactor: 1e-9
 
+    # Geometric observer parameters
     odom/geo/Kp: 4.5
     odom/geo/Kv: 11.25
     odom/geo/Kq: 4.0

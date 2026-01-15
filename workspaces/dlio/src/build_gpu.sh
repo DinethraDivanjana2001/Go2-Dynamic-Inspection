@@ -5,10 +5,18 @@
 
 set -e  # Exit on error
 
-# Ensure we're using CUDA 12.6 or newer
-export PATH=/usr/local/cuda-12.6/bin:$PATH
-export LD_LIBRARY_PATH=/usr/local/cuda-12.6/lib64:$LD_LIBRARY_PATH
-export CUDA_HOME=/usr/local/cuda-12.6
+# Ensure we're using system default CUDA or fallback
+if [ -d "/usr/local/cuda" ]; then
+    export CUDA_HOME=/usr/local/cuda
+elif [ -d "/usr/local/cuda-13.0" ]; then
+    export CUDA_HOME=/usr/local/cuda-13.0
+else
+    # Fallback to whatever is in path or common location
+    export CUDA_HOME=/usr/local/cuda
+fi
+
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 
 echo "======================================"
 echo "DLIO GPU-Accelerated Build Script"
@@ -102,8 +110,7 @@ colcon build \
     --cmake-args \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CUDA_ARCHITECTURES=$COMPUTE_CAP \
-    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-    --parallel-workers $(nproc)
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 if [ $? -eq 0 ]; then
     echo ""

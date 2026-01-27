@@ -166,3 +166,4 @@ Visual_inspection/Object_Identification/runs/trainedoutcome.zip
 
 # OR if you want to keep specific structure, be more specific:
 Visual_inspection/server_workspace/vi_server/app/pipelines/gauge/dependencies/*.whl
+Visual_inspection/server_workspace/vi_server/app/pipelines/gauge/dependencies/*.whl 

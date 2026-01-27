@@ -75,12 +75,15 @@ frames_*.pdf
 *.pickle
 *.weights
 
-# Large zip/compressed files
+
+# Large zip/compressed files and packages
 *.zip
 *.tar
 *.tar.gz
 *.rar
 *.7z
+*.whl
+*.egg
 
 # Large datasets and media files
 *.mp4
@@ -121,7 +124,12 @@ ENV/
 logs/
 *.out
 
-# Training runs and outputs (for YOLOv5/YOLOv8 etc.)
+# Dependencies directories
+**/dependencies/
+**/node_modules/
+**/site-packages/
+
+# Training runs and outputs
 Visual_inspection/Object_Identification/runs/
 Visual_inspection/gauge_reading/*/runs/
 **/runs/train*/

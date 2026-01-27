@@ -27,6 +27,7 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Temporary files
 *.tmp
@@ -60,10 +61,89 @@ frames_*.pdf
 # ===============================
 # ML binaries / models (local only)
 # ===============================
+# Large model files
+*.h5
 *.pt
 *.pth
+*.ckpt
+*.pb
 *.onnx
-*.engine
+*.tflite
+*.bin
+*.safetensors
+*.pkl
+*.pickle
+*.weights
+
+# Large zip/compressed files
 *.zip
-*.whl
-*.db
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Large datasets and media files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.flv
+*.wmv
+*.webm
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Logs and outputs
+*.log
+logs/
+*.out
+
+# Training runs and outputs (for YOLOv5/YOLOv8 etc.)
+Visual_inspection/Object_Identification/runs/
+Visual_inspection/gauge_reading/*/runs/
+**/runs/train*/
+**/runs/detect*/
+**/runs/val*/
+
+# Specific directories with large files
+visual_inspection/gauge_reading/*/data/
+visual_inspection/gauge_reading/*/dataset/
+visual_inspection/gauge_reading/*/datasets/
+visual_inspection/gauge_reading/*/models/
+visual_inspection/gauge_reading/*/weights/
+visual_inspection/gauge_reading/*/checkpoints/
+visual_inspection/gauge_reading/*/outputs/
+visual_inspection/gauge_reading/*/results/
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build and distribution
+build/
+dist/
+*.egg-info/

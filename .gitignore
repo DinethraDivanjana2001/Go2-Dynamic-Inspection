@@ -146,6 +146,10 @@ visual_inspection/gauge_reading/*/checkpoints/
 visual_inspection/gauge_reading/*/outputs/
 visual_inspection/gauge_reading/*/results/
 
+# Interview notes and documentation (local only)
+Visual_inspection/Interview_Notes/
+Visual_inspection/jetson_integration/README.md
+
 # OS specific
 .DS_Store
 Thumbs.db

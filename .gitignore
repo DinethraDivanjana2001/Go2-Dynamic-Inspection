@@ -155,3 +155,14 @@ desktop.ini
 build/
 dist/
 *.egg-info/
+
+# Large wheel files in dependencies
+**/dependencies/*.whl
+
+# Large zip files in runs
+Visual_inspection/Object_Identification/runs/**/*.zip
+Visual_inspection/Object_Identification/runs/train*/
+Visual_inspection/Object_Identification/runs/trainedoutcome.zip
+
+# OR if you want to keep specific structure, be more specific:
+Visual_inspection/server_workspace/vi_server/app/pipelines/gauge/dependencies/*.whl

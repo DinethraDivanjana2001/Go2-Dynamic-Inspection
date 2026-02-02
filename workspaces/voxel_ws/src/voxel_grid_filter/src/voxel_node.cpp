@@ -15,7 +15,7 @@ public:
 
     // Create subscriber
     subscription_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-      "/registered_scan_o3d", 10, std::bind(&VoxelGridNode::topic_callback, this, std::placeholders::_1));
+      "/dlio/map_node/map", 10, std::bind(&VoxelGridNode::topic_callback, this, std::placeholders::_1));
 
     // Create publisher
     publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/registered_scan_o3d/voxelized", 10);

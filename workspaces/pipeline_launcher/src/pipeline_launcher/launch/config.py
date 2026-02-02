@@ -27,7 +27,7 @@ PACKAGE_FAST_LIO = "fast_lio"
 # =============================================================================
 # Launch File Paths (relative to package share directory)
 # =============================================================================
-LAUNCH_DLIO = "/launch/dlio.launch.py"
+LAUNCH_DLIO = "/launch/dlio_mapping.launch.py"
 LAUNCH_OPEN3D_SLAM = "/launch/open3d_launch.py"
 LAUNCH_GO2_SIMULATOR = "/launch/system_real_robot.launch"
 LAUNCH_FAR_PLANNER = "/launch/far_planner.launch"

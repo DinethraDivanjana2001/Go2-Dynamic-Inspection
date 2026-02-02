@@ -169,7 +169,7 @@ To ensure smooth performance on the web interface, the high-density SLAM point c
 - **Node**: `voxel_grid_node` (C++)
 - **Function**: Applies a PCL VoxelGrid filter to reduce point count (~10x reduction) while preserving structural features.
 - **Topic Flow**:
-  - Input: `/registered_scan_o3d` (High density from SLAM)
+  - Input: `/dlio/map_node/map` (High density from SLAM)
   - Output: `/registered_scan_o3d/voxelized` (Optimized for Web UI)
 - **Configuration**:
   - `voxel_size`: Default `0.1m` (balances bandwidth vs. detail).

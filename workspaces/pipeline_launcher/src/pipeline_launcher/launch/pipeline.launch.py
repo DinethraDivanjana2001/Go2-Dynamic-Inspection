@@ -43,7 +43,7 @@ def generate_launch_description():
     # Launch dlio (assuming it is part of the pipeline)
     dlio_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
-            FindPackageShare('direct_lidar_inertial_odometry'), '/launch/dlio.launch.py'
+            FindPackageShare('direct_lidar_inertial_odometry'), '/launch/dlio_mapping.launch.pyaunch.py'
         ]),
         launch_arguments={
             'rviz': 'false'

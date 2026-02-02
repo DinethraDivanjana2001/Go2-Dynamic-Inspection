@@ -76,7 +76,7 @@ roslaunch direct_lidar_inertial_odometry dlio.launch \
 <summary> Example command: </summary>
 
 ``` bash
-ros2 launch direct_lidar_inertial_odometry dlio.launch.py rviz:=true pointcloud_topic:=/lexus3/os_center/points imu_topic:=/lexus3/os_center/imu
+ros2 launch direct_lidar_inertial_odometry dlio_mapping.launch.py rviz:=true pointcloud_topic:=/lexus3/os_center/points imu_topic:=/lexus3/os_center/imu
 ```
 </details>
 

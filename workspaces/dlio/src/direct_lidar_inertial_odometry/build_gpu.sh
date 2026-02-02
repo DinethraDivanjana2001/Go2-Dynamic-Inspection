@@ -122,7 +122,7 @@ if [ $? -eq 0 ]; then
     echo ""
     echo "To run:"
     echo "  source install/setup.bash"
-    echo "  ros2 launch direct_lidar_inertial_odometry dlio.launch.py"
+    echo "  ros2 launch direct_lidar_inertial_odometry dlio_mapping.launch.py"
     echo ""
     echo "To monitor GPU usage:"
     echo "  watch -n 0.5 nvidia-smi"

@@ -61,7 +61,7 @@ case "$1" in
         LAUNCH_FILE="pipeline_vehicle.launch.py"
         ;;
     --dlio|-l)
-        LAUNCH_FILE="pipeline_dlio.launch.py"
+        LAUNCH_FILE="pipeline_dlio_mapping.launch.py"
         ;;
     --sim|-s)
         echo "For simulation, use ./scripts/sim.sh instead"

@@ -152,6 +152,7 @@ void odometryHandler(const nav_msgs::msg::Odometry::ConstSharedPtr odom)
 
 void laserCloudHandler(const sensor_msgs::msg::PointCloud2::ConstSharedPtr laserCloud2)
 {
+  RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 2000, "DEBUG laserCloudHandler: useTerrainAnalysis=%d, cloud size=%d", useTerrainAnalysis, (int)laserCloud2->width * laserCloud2->height);
   if (!useTerrainAnalysis) {
     laserCloud->clear();
     pcl::fromROSMsg(*laserCloud2, *laserCloud);
@@ -185,6 +186,7 @@ void laserCloudHandler(const sensor_msgs::msg::PointCloud2::ConstSharedPtr laser
 
 void terrainCloudHandler(const sensor_msgs::msg::PointCloud2::ConstSharedPtr terrainCloud2)
 {
+  RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 2000, "DEBUG terrainCloudHandler: useTerrainAnalysis=%d, cloud size=%d", useTerrainAnalysis, (int)terrainCloud2->width * terrainCloud2->height);
   if (useTerrainAnalysis) {
     terrainCloud->clear();
     pcl::fromROSMsg(*terrainCloud2, *terrainCloud);
@@ -212,6 +214,7 @@ void terrainCloudHandler(const sensor_msgs::msg::PointCloud2::ConstSharedPtr ter
     terrainDwzFilter.setInputCloud(terrainCloudCrop);
     terrainDwzFilter.filter(*terrainCloudDwz);
 
+    RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 2000, "DEBUG terrainCloud: raw=%d, cropped=%d, dwz=%d", terrainCloudSize, (int)terrainCloudCrop->size(), (int)terrainCloudDwz->size());
     newTerrainCloud = true;
   }
 }
@@ -231,11 +234,11 @@ void joystickHandler(const sensor_msgs::msg::Joy::ConstSharedPtr joy)
 
   if (joy->axes[4] < 0 && !twoWayDrive) joySpeed = 0;
 
-  if (joy->axes[2] > -0.1) {
-    autonomyMode = false;
-  } else {
-    autonomyMode = true;
-  }
+  // if (joy->axes[2] > -0.1) {
+  //   autonomyMode = false;
+  // } else {
+  //   autonomyMode = true;
+  // }
 
   if (joy->axes[5] > -0.1) {
     checkObstacle = true;
@@ -650,6 +653,9 @@ int main(int argc, char** argv)
   while (status) {
     rclcpp::spin_some(nh);
 
+    RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 3000, "DEBUG mainloop: newLaser=%d, newTerrain=%d, useTerrainAnalysis=%d, vX=%.2f, vY=%.2f, goalX=%.2f, goalY=%.2f, joySpeed=%.2f, joyDir=%.2f", 
+                newLaserCloud, newTerrainCloud, useTerrainAnalysis, vehicleX, vehicleY, goalX, goalY, joySpeed, joyDir);
+
     if (newLaserCloud || newTerrainCloud) {
       if (newLaserCloud) {
         newLaserCloud = false;
@@ -888,6 +894,9 @@ int main(int argc, char** argv)
             }
           }
 
+          RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 2000, "DEBUG PATH FOUND: groupID=%d, rotDir=%d, pathLen=%d, pathRange=%.2f, relGoalDis=%.2f, pathScale=%.2f",
+                    selectedGroupID, rotDir, (int)path.poses.size(), pathRange, relativeGoalDis, pathScale);
+
           path.header.stamp = rclcpp::Time(static_cast<uint64_t>(odomTime * 1e9));
           path.header.frame_id = "base_footprint";
           pubPath->publish(path);
@@ -955,6 +964,8 @@ int main(int argc, char** argv)
       pathScale = defPathScale;
 
       if (!pathFound) {
+        RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 2000, "DEBUG NO PATH FOUND: plannerCloudCrop=%d, joyDir=%.2f, joySpeed=%.2f, pathScale=%.2f, pathRange=%.2f, relGoalDis=%.2f, checkObstacle=%d",
+                  (int)plannerCloudCrop->size(), joyDir, joySpeed, pathScale, adjacentRange, relativeGoalDis, checkObstacle);
         path.poses.resize(1);
         path.poses[0].pose.position.x = 0;
         path.poses[0].pose.position.y = 0;

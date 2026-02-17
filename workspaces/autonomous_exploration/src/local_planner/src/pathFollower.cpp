@@ -150,8 +150,8 @@ void pathHandler(const nav_msgs::msg::Path::ConstSharedPtr pathIn)
 
 void joystickHandler(const sensor_msgs::msg::Joy::ConstSharedPtr joy)
 {
-  joyTime = nh->now().seconds(); 
   joySpeedRaw = sqrt(joy->axes[3] * joy->axes[3] + joy->axes[4] * joy->axes[4]);
+  if (joySpeedRaw > 0.05) joyTime = nh->now().seconds();
   joySpeed = joySpeedRaw;
   if (joySpeed > 1.0) joySpeed = 1.0;
   if (joy->axes[4] == 0) joySpeed = 0;
@@ -163,11 +163,11 @@ void joystickHandler(const sensor_msgs::msg::Joy::ConstSharedPtr joy)
     joyYaw = 0;
   }
 
-  if (joy->axes[2] > -0.1) {
-    autonomyMode = false;
-  } else {
-    autonomyMode = true;
-  }
+  // if (joy->axes[2] > -0.1) {
+  //   autonomyMode = false;
+  // } else {
+  //   autonomyMode = true;
+  // }
 }
 
 void speedHandler(const std_msgs::msg::Float32::ConstSharedPtr speed)
@@ -326,6 +326,12 @@ int main(int argc, char** argv)
         }
       }
 
+      if (autonomyMode && nh->now().seconds() - joyTime > joyToSpeedDelay && joySpeed == 0) {
+        joySpeed = autonomySpeed / maxSpeed;
+        if (joySpeed < 0) joySpeed = 0;
+        else if (joySpeed > 1.0) joySpeed = 1.0;
+      }
+
       float joySpeed2 = maxSpeed * joySpeed;
       if (!navFwd) {
         dirDiff += PI;
@@ -377,6 +383,12 @@ int main(int argc, char** argv)
         else cmd_vel.linear.x = vehicleSpeed;  
         cmd_vel.angular.z = vehicleYawRate;  
         pubSpeed->publish(cmd_vel);
+
+        RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 1000, "Vel: %.2f, Yaw: %.2f, JoyS: %.2f, Auto: %d, Safe: %d, Path: %d", 
+                    vehicleSpeed, vehicleYawRate, joySpeed, autonomyMode, safetyStop, pathInit);
+
+        RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 1000, "DEBUG: pathSize=%d, dirDiff=%.2f (thre=%.2f), dis=%.2f (thre=%.2f), joySpeed=%.2f, joySpeed2=%.2f, joySpeed3=%.2f, vehicleSpeed=%.2f, stopTime=%.2f, slowTime1=%.2f, odomTime=%.2f, stopInitTime=%.2f", 
+                    pathSize, dirDiff, dirDiffThre, dis, stopDisThre, joySpeed, joySpeed2, joySpeed3, vehicleSpeed, stopTime, slowTime1, odomTime, stopInitTime);
 
         pubSkipCount = pubSkipNum;
       }

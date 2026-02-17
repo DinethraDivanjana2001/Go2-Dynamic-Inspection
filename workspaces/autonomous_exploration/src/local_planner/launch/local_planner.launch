@@ -20,7 +20,7 @@
     <param name="twoWayDrive" value="$(var twoWayDrive)" />
     <param name="laserVoxelSize" value="0.05" />
     <param name="terrainVoxelSize" value="0.2" />
-    <param name="useTerrainAnalysis" value="true" />
+    <param name="useTerrainAnalysis" value="false" />
     <param name="checkObstacle" value="true" />
     <param name="checkRotObstacle" value="false" />
     <param name="adjacentRange" value="4.25" />
@@ -43,7 +43,7 @@
     <param name="minPathRange" value="1.0" />
     <param name="pathRangeStep" value="0.5" />
     <param name="pathRangeBySpeed" value="true" />
-    <param name="pathCropByGoal" value="true" />
+    <param name="pathCropByGoal" value="false" />
     <param name="autonomyMode" value="$(var autonomyMode)" />
     <param name="autonomySpeed" value="$(var autonomySpeed)" />
     <param name="joyToSpeedDelay" value="$(var joyToSpeedDelay)" />

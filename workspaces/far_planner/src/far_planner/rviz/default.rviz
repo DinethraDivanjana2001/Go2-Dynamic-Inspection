@@ -3,7 +3,9 @@ Panels:
     Help Height: 0
     Name: Displays
     Property Tree Widget:
-      Expanded: ~
+      Expanded:
+        - /RegScan1
+        - /TerrainMapExt1
       Splitter Ratio: 0.8294117450714111
     Tree Height: 865
   - Class: rviz_common/Selection
@@ -52,8 +54,8 @@ Visualization Manager:
     - Alpha: 0.10000000149011612
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 35.4777717590332
-        Min Value: -0.5206514596939087
+        Max Value: 8.456247329711914
+        Min Value: -0.8922994136810303
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -70,8 +72,8 @@ Visualization Manager:
       Name: RegScan
       Position Transformer: XYZ
       Selectable: true
-      Size (Pixels): 2
-      Size (m): 0.05000000074505806
+      Size (Pixels): 6
+      Size (m): 0.30000001192092896
       Style: Points
       Topic:
         Depth: 5
@@ -129,7 +131,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: Intensity
       Decay Time: 0
-      Enabled: false
+      Enabled: true
       Invert Rainbow: true
       Max Color: 255; 255; 255
       Max Intensity: 0.10000000149011612
@@ -150,8 +152,8 @@ Visualization Manager:
         Value: /terrain_map
       Use Fixed Frame: true
       Use rainbow: true
-      Value: false
-    - Alpha: 0.10000000149011612
+      Value: true
+    - Alpha: 0.4000000059604645
       Autocompute Intensity Bounds: false
       Autocompute Value Bounds:
         Max Value: 10
@@ -172,7 +174,7 @@ Visualization Manager:
       Name: TerrainMapExt
       Position Transformer: XYZ
       Selectable: true
-      Size (Pixels): 4
+      Size (Pixels): 6
       Size (m): 0.03999999910593033
       Style: Points
       Topic:
@@ -487,25 +489,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 28.373619079589844
+      Distance: 21.906845092773438
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 7.16588020324707
-        Y: 3.0719823837280273
-        Z: -2.919329881668091
+        X: 0.569874107837677
+        Y: -1.9915543794631958
+        Z: -2.0373871326446533
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.9997976422309875
+      Pitch: 0.8797974586486816
       Target Frame: map
       Value: Orbit (rviz)
-      Yaw: 4.735398292541504
+      Yaw: 2.555420160293579
     Saved: ~
 Window Geometry:
   Displays:

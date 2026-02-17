@@ -8,6 +8,8 @@ Panels:
         - /Frames1
         - /Point Clouds1
         - /Point Clouds1/Deskewed Scan1
+        - /Point Clouds1/Sparse Map1
+        - /Point Clouds1/Sparse Map1/Autocompute Value Bounds1
         - /Odometry1
       Splitter Ratio: 0.6470588445663452
     Tree Height: 865
@@ -29,7 +31,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: ""
+    SyncSource: Sparse Map
 Visualization Manager:
   Class: ""
   Displays:
@@ -40,13 +42,29 @@ Visualization Manager:
           Frame Timeout: 9999
           Frames:
             All Enabled: true
+            base_footprint:
+              Value: true
+            base_link:
+              Value: true
+            livox_frame:
+              Value: true
+            map:
+              Value: true
+            odom_dlio:
+              Value: true
           Marker Scale: 5
           Name: tf tree
           Show Arrows: true
           Show Axes: true
           Show Names: true
           Tree:
-            {}
+            base_footprint:
+              base_link:
+                livox_frame:
+                  {}
+            odom_dlio:
+              map:
+                {}
           Update Interval: 0
           Value: true
         - Class: rviz_default_plugins/Axes
@@ -70,15 +88,15 @@ Visualization Manager:
         - Alpha: 1
           Autocompute Intensity Bounds: false
           Autocompute Value Bounds:
-            Max Value: 5.365326881408691
-            Min Value: -1.4678200483322144
+            Max Value: 3.560795545578003
+            Min Value: -0.6868078708648682
             Value: true
           Axis: Z
           Channel Name: intensity
           Class: rviz_default_plugins/PointCloud2
           Color: 0; 255; 0
           Color Transformer: AxisColor
-          Decay Time: 10
+          Decay Time: 3
           Enabled: true
           Invert Rainbow: false
           Max Color: 255; 255; 255
@@ -145,7 +163,7 @@ Visualization Manager:
           Channel Name: intensity
           Class: rviz_default_plugins/PointCloud2
           Color: 255; 255; 255
-          Color Transformer: Intensity
+          Color Transformer: AxisColor
           Decay Time: 0
           Enabled: true
           Invert Rainbow: false
@@ -156,9 +174,9 @@ Visualization Manager:
           Name: Sparse Map
           Position Transformer: XYZ
           Selectable: true
-          Size (Pixels): 1
+          Size (Pixels): 3
           Size (m): 0.05000000074505806
-          Style: Points
+          Style: Boxes
           Topic:
             Depth: 5
             Durability Policy: Volatile
@@ -263,6 +281,35 @@ Visualization Manager:
           Value: true
       Enabled: true
       Name: Odometry
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: MarkerArray
+      Namespaces:
+        angle_direct: true
+        boundary_edge: true
+        boundary_vertex: true
+        freespace_vertex: true
+        freespace_vgraph: true
+        frontier_vertex: true
+        global_vertex: true
+        global_vgraph: true
+        localrange_vertex: true
+        odom_edge: true
+        polygon_edge: true
+        to_goal_edge: true
+        trajectory_edge: true
+        trajectory_vertex: true
+        updating_vertex: true
+        vertex_angle: true
+        vertices_matches: true
+        visibility_edge: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /viz_graph_topic
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0
@@ -309,25 +356,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 12.011634826660156
+      Distance: 6.251276016235352
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0
-        Y: 0
-        Z: 0
+        X: 0.04301406815648079
+        Y: 0.387496680021286
+        Z: 0.1930418461561203
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.37000083923339844
+      Pitch: 0.2547973096370697
       Target Frame: base_link
       Value: Orbit (rviz_default_plugins)
-      Yaw: 5.798175811767578
+      Yaw: 5.830355167388916
     Saved: ~
 Window Geometry:
   Displays:

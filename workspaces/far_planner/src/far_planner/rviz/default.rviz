@@ -24,7 +24,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: RegScan
+    SyncSource: TerrainMap
   - Class: teleop_rviz_plugin/TeleopPanel
     Name: TeleopPanel
 Visualization Manager:
@@ -54,8 +54,8 @@ Visualization Manager:
     - Alpha: 0.10000000149011612
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 8.456247329711914
-        Min Value: -0.8922994136810303
+        Max Value: 7.747151851654053
+        Min Value: -0.6560084223747253
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -63,7 +63,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: AxisColor
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Intensity: 0
@@ -84,7 +84,7 @@ Visualization Manager:
         Value: /registered_scan
       Use Fixed Frame: true
       Use rainbow: true
-      Value: true
+      Value: false
     - Alpha: 0.20000000298023224
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -489,25 +489,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 21.906845092773438
+      Distance: 29.30429458618164
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.569874107837677
-        Y: -1.9915543794631958
-        Z: -2.0373871326446533
+        X: 1.9001694917678833
+        Y: -1.1852580308914185
+        Z: -0.48625877499580383
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.8797974586486816
+      Pitch: 0.9647974967956543
       Target Frame: map
       Value: Orbit (rviz)
-      Yaw: 2.555420160293579
+      Yaw: 2.1354265213012695
     Saved: ~
 Window Geometry:
   Displays:

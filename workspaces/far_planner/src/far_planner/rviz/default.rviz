@@ -6,6 +6,7 @@ Panels:
       Expanded:
         - /RegScan1
         - /TerrainMapExt1
+        - /PointStamped1
       Splitter Ratio: 0.8294117450714111
     Tree Height: 865
   - Class: rviz_common/Selection
@@ -51,11 +52,11 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /camera/image_raw
       Value: true
-    - Alpha: 0.10000000149011612
+    - Alpha: 0.6000000238418579
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 7.747151851654053
-        Min Value: -0.6560084223747253
+        Max Value: 2.6776885986328125
+        Min Value: -0.36664706468582153
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -63,7 +64,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: AxisColor
       Decay Time: 0
-      Enabled: false
+      Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Intensity: 0
@@ -72,8 +73,8 @@ Visualization Manager:
       Name: RegScan
       Position Transformer: XYZ
       Selectable: true
-      Size (Pixels): 6
-      Size (m): 0.30000001192092896
+      Size (Pixels): 3
+      Size (m): 2
       Style: Points
       Topic:
         Depth: 5
@@ -84,7 +85,7 @@ Visualization Manager:
         Value: /registered_scan
       Use Fixed Frame: true
       Use rainbow: true
-      Value: false
+      Value: true
     - Alpha: 0.20000000298023224
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -254,9 +255,12 @@ Visualization Manager:
       Name: Goalpoint
       Namespaces:
         clear_nodes: true
+        free_goal: true
         free_odom_position: true
         last_nav_node: true
+        original_goal: true
         out_contour: true
+        waypoint: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -417,7 +421,7 @@ Visualization Manager:
       Enabled: true
       Name: GlobalPath
       Namespaces:
-        {}
+        global_path: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -427,37 +431,8 @@ Visualization Manager:
         Value: /viz_path_topic
       Value: true
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
+      Enabled: false
       Name: VGraph
-      Namespaces:
-        angle_direct: true
-        boundary_edge: true
-        boundary_vertex: true
-        freespace_vertex: true
-        freespace_vgraph: true
-        frontier_vertex: true
-        global_vertex: true
-        global_vgraph: true
-        localrange_vertex: true
-        odom_edge: true
-        polygon_edge: true
-        to_goal_edge: true
-        trajectory_edge: true
-        trajectory_vertex: true
-        updating_vertex: true
-        vertex_angle: true
-        vertices_matches: true
-        visibility_edge: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /viz_graph_topic
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
-      Name: ViewpointExtend
       Namespaces:
         {}
       Topic:
@@ -465,8 +440,38 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
+        Value: /viz_graph_topic
+      Value: false
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: ViewpointExtend
+      Namespaces:
+        corner_direct: true
+        extend_viewpoint: true
+        origin_viewpoint: true
+        raytracing_line: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
         Value: /viz_viewpoint_extend_topic
       Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/PointStamped
+      Color: 38; 162; 105
+      Enabled: false
+      History Length: 1
+      Name: PointStamped
+      Radius: 1
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /way_point
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0
@@ -489,25 +494,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 29.30429458618164
+      Distance: 20.379745483398438
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 1.9001694917678833
-        Y: -1.1852580308914185
-        Z: -0.48625877499580383
+        X: 1.043320655822754
+        Y: -2.7899057865142822
+        Z: -0.4622025191783905
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.9647974967956543
+      Pitch: 1.1797963380813599
       Target Frame: map
       Value: Orbit (rviz)
-      Yaw: 2.1354265213012695
+      Yaw: 3.0054259300231934
     Saved: ~
 Window Geometry:
   Displays:

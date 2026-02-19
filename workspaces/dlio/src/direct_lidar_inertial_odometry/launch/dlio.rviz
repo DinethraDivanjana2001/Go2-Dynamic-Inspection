@@ -46,11 +46,49 @@ Visualization Manager:
               Value: true
             base_link:
               Value: true
+            lf_foot_link:
+              Value: true
+            lf_hip_link:
+              Value: true
+            lf_lower_leg_link:
+              Value: true
+            lf_upper_leg_link:
+              Value: true
+            lh_foot_link:
+              Value: true
+            lh_hip_link:
+              Value: true
+            lh_lower_leg_link:
+              Value: true
+            lh_upper_leg_link:
+              Value: true
             livox_frame:
               Value: true
             map:
               Value: true
             odom_dlio:
+              Value: true
+            rf_foot_link:
+              Value: true
+            rf_hip_link:
+              Value: true
+            rf_lower_leg_link:
+              Value: true
+            rf_upper_leg_link:
+              Value: true
+            rh_foot_link:
+              Value: true
+            rh_hip_link:
+              Value: true
+            rh_lower_leg_link:
+              Value: true
+            rh_upper_leg_link:
+              Value: true
+            trunk:
+              Value: true
+            velodyne:
+              Value: true
+            velodyne_base_link:
               Value: true
           Marker Scale: 5
           Name: tf tree
@@ -62,6 +100,30 @@ Visualization Manager:
               base_link:
                 livox_frame:
                   {}
+                trunk:
+                  lf_hip_link:
+                    lf_upper_leg_link:
+                      lf_lower_leg_link:
+                        lf_foot_link:
+                          {}
+                  lh_hip_link:
+                    lh_upper_leg_link:
+                      lh_lower_leg_link:
+                        lh_foot_link:
+                          {}
+                  rf_hip_link:
+                    rf_upper_leg_link:
+                      rf_lower_leg_link:
+                        rf_foot_link:
+                          {}
+                  rh_hip_link:
+                    rh_upper_leg_link:
+                      rh_lower_leg_link:
+                        rh_foot_link:
+                          {}
+                velodyne_base_link:
+                  velodyne:
+                    {}
             odom_dlio:
               map:
                 {}
@@ -88,8 +150,8 @@ Visualization Manager:
         - Alpha: 1
           Autocompute Intensity Bounds: false
           Autocompute Value Bounds:
-            Max Value: 3.560795545578003
-            Min Value: -0.6868078708648682
+            Max Value: 2.6859283447265625
+            Min Value: -0.37733423709869385
             Value: true
           Axis: Z
           Channel Name: intensity
@@ -310,6 +372,19 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /viz_graph_topic
       Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Marker
+      Namespaces:
+        global_path: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /viz_path_topic
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0
@@ -356,25 +431,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 6.251276016235352
+      Distance: 11.276694297790527
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.04301406815648079
-        Y: 0.387496680021286
-        Z: 0.1930418461561203
+        X: 0.9529008865356445
+        Y: 2.890291213989258
+        Z: 0.18522247672080994
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.2547973096370697
+      Pitch: 1.36479651927948
       Target Frame: base_link
       Value: Orbit (rviz_default_plugins)
-      Yaw: 5.830355167388916
+      Yaw: 0.07217056304216385
     Saved: ~
 Window Geometry:
   Displays:

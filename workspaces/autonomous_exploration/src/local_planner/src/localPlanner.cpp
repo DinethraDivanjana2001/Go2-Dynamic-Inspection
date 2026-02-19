@@ -132,6 +132,9 @@ double joyTime = 0;
 float vehicleRoll = 0, vehiclePitch = 0, vehicleYaw = 0;
 float vehicleX = 0, vehicleY = 0, vehicleZ = 0;
 
+float pathYaw = 0;
+bool pathYawInit = false;
+
 pcl::VoxelGrid<pcl::PointXYZI> laserDwzFilter, terrainDwzFilter;
 rclcpp::Node::SharedPtr nh;
 
@@ -589,7 +592,7 @@ int main(int argc, char** argv)
 
   auto subLaserCloud = nh->create_subscription<sensor_msgs::msg::PointCloud2>("/registered_scan", 5, laserCloudHandler);
 
-  auto subTerrainCloud = nh->create_subscription<sensor_msgs::msg::PointCloud2>("/terrain_map", 5, terrainCloudHandler);
+  auto subTerrainCloud = nh->create_subscription<sensor_msgs::msg::PointCloud2>("/terrain_map_ext", 5, terrainCloudHandler);
 
   auto subJoystick = nh->create_subscription<sensor_msgs::msg::Joy>("/joy", 5, joystickHandler);
 
@@ -878,6 +881,21 @@ int main(int argc, char** argv)
           selectedGroupID = selectedGroupID % groupNum;
           int selectedPathLength = startPaths[selectedGroupID]->points.size();
           path.poses.resize(selectedPathLength);
+
+          float pathSmoothWeight = 0.4;
+          if (!pathYawInit) {
+            pathYaw = rotAng;
+            pathYawInit = true;
+          } else {
+            float diff = rotAng - pathYaw;
+            if (diff > PI) diff -= 2 * PI;
+            if (diff < -PI) diff += 2 * PI;
+
+            pathYaw += pathSmoothWeight * diff;
+            if (pathYaw > PI) pathYaw -= 2 * PI;
+            if (pathYaw < -PI) pathYaw += 2 * PI;
+          }
+
           for (int i = 0; i < selectedPathLength; i++) {
             float x = startPaths[selectedGroupID]->points[i].x;
             float y = startPaths[selectedGroupID]->points[i].y;
@@ -885,8 +903,8 @@ int main(int argc, char** argv)
             float dis = sqrt(x * x + y * y);
 
             if (dis <= pathRange / pathScale && dis <= relativeGoalDis / pathScale) {
-              path.poses[i].pose.position.x = pathScale * (cos(rotAng) * x - sin(rotAng) * y);
-              path.poses[i].pose.position.y = pathScale * (sin(rotAng) * x + cos(rotAng) * y);
+              path.poses[i].pose.position.x = pathScale * (cos(pathYaw) * x - sin(pathYaw) * y);
+              path.poses[i].pose.position.y = pathScale * (sin(pathYaw) * x + cos(pathYaw) * y);
               path.poses[i].pose.position.z = pathScale * z;
             } else {
               path.poses.resize(i);

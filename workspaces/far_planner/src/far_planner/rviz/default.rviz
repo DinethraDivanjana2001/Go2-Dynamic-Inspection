@@ -55,8 +55,8 @@ Visualization Manager:
     - Alpha: 0.6000000238418579
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 2.6776885986328125
-        Min Value: -0.36664706468582153
+        Max Value: 2.6789820194244385
+        Min Value: -0.3608759641647339
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -431,17 +431,34 @@ Visualization Manager:
         Value: /viz_path_topic
       Value: true
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: false
+      Enabled: true
       Name: VGraph
       Namespaces:
-        {}
+        angle_direct: true
+        boundary_edge: true
+        boundary_vertex: true
+        freespace_vertex: true
+        freespace_vgraph: true
+        frontier_vertex: true
+        global_vertex: true
+        global_vgraph: true
+        localrange_vertex: true
+        odom_edge: true
+        polygon_edge: true
+        to_goal_edge: true
+        trajectory_edge: true
+        trajectory_vertex: true
+        updating_vertex: true
+        vertex_angle: true
+        vertices_matches: true
+        visibility_edge: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /viz_graph_topic
-      Value: false
+      Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: ViewpointExtend
@@ -494,16 +511,16 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 20.379745483398438
+      Distance: 23.52640151977539
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 1.043320655822754
-        Y: -2.7899057865142822
-        Z: -0.4622025191783905
+        X: 2.514209747314453
+        Y: -2.095061779022217
+        Z: 0.09963937848806381
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false

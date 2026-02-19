@@ -175,6 +175,10 @@ void laserCloudHandler(const sensor_msgs::msg::PointCloud2::ConstSharedPtr laser
         point.x = pointX;
         point.y = pointY;
         point.z = pointZ;
+        // Store relative height (above vehicle) in intensity so obstacle
+        // marking logic (h > obstacleHeightThre) works correctly.
+        // Raw LiDAR intensity is reflectance, not useful for obstacle height.
+        point.intensity = pointZ - vehicleZ;
         laserCloudCrop->push_back(point);
       }
     }

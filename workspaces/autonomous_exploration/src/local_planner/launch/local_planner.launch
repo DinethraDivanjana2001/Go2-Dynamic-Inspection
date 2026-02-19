@@ -28,9 +28,9 @@
     <param name="groundHeightThre" value="0.1" />
     <param name="costHeightThre" value="0.1" />
     <param name="costScore" value="0.02" />
-    <param name="useCost" value="true" />
-    <param name="pointPerPathThre" value="2" />
-    <param name="minRelZ" value="-0.5" />
+    <param name="useCost" value="false" />
+    <param name="pointPerPathThre" value="3" />
+    <param name="minRelZ" value="-0.1" />
     <param name="maxRelZ" value="0.8" />
     <param name="maxSpeed" value="$(var maxSpeed)" />
     <param name="dirWeight" value="0.08" />

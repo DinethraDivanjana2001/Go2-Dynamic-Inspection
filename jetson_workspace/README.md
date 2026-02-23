@@ -1,244 +1,245 @@
-# Jetson Orin Nano - IBVS Visual Servoing System
+# Jetson Orin Nano — IBVS Visual Servoing System
 
-## 📦 Workspace Contents
-
-This is a self-contained workspace for deploying the IBVS visual servoing system on Jetson Orin Nano.
-
-### Directory Structure
+## 📁 Workspace Structure
 
 ```
 jetson_workspace/
-├── ibvs_pipeline.py              # Main IBVS pipeline (two-stage system)
-├── test_calibration_live.py      # Test script for calibration validation
-├── calibration_config.py         # Insta360 calibration formulas
+├── ibvs_pipeline.py              # Main IBVS pipeline
+├── run.sh                        # ← USE THIS to start/stop the pipeline
+├── test_calibration_live.py      # Calibration validation script
+├── calibration_config.py         # Insta360 calibration math
 ├── requirements.txt              # Python dependencies
-├── README.md                     # This file
-├── SETUP.md                      # Detailed setup instructions
 ├── config/
-│   └── logitech_intrinsics.yaml  # Logitech C920 camera calibration
+│   └── logitech_intrinsics.yaml  # Logitech C920 calibration
 ├── weights/
-│   └── yolo11n.pt                # YOLO model weights
+│   ├── yolo11n.pt                # YOLO PyTorch weights
+│   └── yolo11n.engine            # TensorRT engine (generated on Jetson)
 ├── arduino/
-│   └── pan_tilt_control.ino      # Arduino servo control code
+│   └── pan_tilt_control.ino      # Arduino servo control sketch
 └── docs/
-    ├── IBVS_TUNING_GUIDE.md      # How to tune PID parameters
-    ├── IBVS_SYSTEM_SUMMARY.md    # System overview
-    └── THE_COMPLETE_STORY.md     # Complete explanation
+    ├── OPTIMIZATION_PLAN.md      # Performance optimization roadmap
+    ├── IBVS_TUNING_GUIDE.md      # PID tuning guide
+    └── IBVS_SYSTEM_SUMMARY.md    # System overview
 ```
 
-## 🚀 Quick Start
+---
 
-### 1. Transfer to Jetson
+## 🚀 How to Run the Pipeline
 
-On your development machine:
-```bash
-# Create archive
-cd /home/dinethra/Jetson_orin_nano
-tar -czf jetson_workspace.tar.gz jetson_workspace/
-
-# Transfer to Jetson (replace with your Jetson's IP)
-scp jetson_workspace.tar.gz jetson@<JETSON_IP>:~/
-```
-
-On Jetson Orin Nano:
-```bash
-# Extract
-cd ~
-tar -xzf jetson_workspace.tar.gz
-cd jetson_workspace
-```
-
-### 2. Setup Virtual Environment
+### ⚡ Always use `run.sh` — it handles everything automatically
 
 ```bash
-# Create virtual environment
-python3 -m venv venv
-
-# Activate
+cd ~/Documents/Visual_Inspection_ws
 source venv/bin/activate
 
-# Install dependencies
-pip install --upgrade pip
-pip install -r requirements.txt
+# Make it executable (one time only)
+chmod +x run.sh
 ```
 
-### 3. Hardware Setup
+---
 
-**Connect:**
-- Insta360 camera → USB port
-- Logitech C920 → USB port  
-- Arduino → USB port (should appear as /dev/ttyACM0)
+## 🖥️ Headed vs Headless Mode
 
-**Upload Arduino code:**
+| Feature | Headed Mode | Headless Mode |
+|---------|-------------|---------------|
+| Camera window | ✅ Visible (via VNC) | ❌ No window |
+| FPS in terminal | ✅ Every second | ✅ Every second |
+| cv2.imshow | ✅ Yes | ❌ No |
+| Speed | Slightly slower (drawing cost) | 🔥 Maximum speed |
+| When to use | Debugging, tuning | Production, deployment |
+| Display needed | Yes (VNC or monitor) | No display needed |
+
+---
+
+## ▶️ Run Commands
+
+### Headless Mode (recommended for production)
 ```bash
-# Install Arduino CLI (if not already installed)
-curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
+# Start
+./run.sh headless
 
-# Upload code
-arduino-cli compile --fqbn arduino:avr:uno arduino/pan_tilt_control.ino
-arduino-cli upload -p /dev/ttyACM0 --fqbn arduino:avr:uno arduino/pan_tilt_control.ino
+# OR manually:
+pkill -f ibvs_pipeline.py && sleep 2
+python3 ibvs_pipeline.py --headless
 ```
 
-### 4. Verify Setup
+**Terminal output every second:**
+```
+[FPS] 30.0 fps  |  State: COARSE  |  Pan=90°  Tilt=90°
+[FPS] 29.9 fps  |  State: FINE    |  Pan=95°  Tilt=88°
+✓ CENTERED after 18 iterations (error=6.8px)
+```
+
+---
+
+### Headed Mode (use for debugging via VNC)
+```bash
+# Start
+./run.sh
+
+# OR manually:
+pkill -f ibvs_pipeline.py && sleep 2
+DISPLAY=:1 python3 ibvs_pipeline.py
+```
+
+Shows a live camera window with both Insta360 and Logitech feeds side by side.
+Press `q` in the window to quit, or `Ctrl+C` in terminal.
+
+---
+
+## 🛑 Stop the Pipeline
 
 ```bash
-# Check cameras
-ls -l /sys/class/video4linux/video*/name
+# Method 1 — cleanest (sends proper shutdown signal)
+Ctrl+C
 
-# Test calibration system
-python3 test_calibration_live.py
+# Method 2 — if stuck in background or unresponsive
+pkill -f ibvs_pipeline.py
+
+# Method 2a — force kill if pkill doesn't work
+pkill -9 -f ibvs_pipeline.py
+sleep 2    # wait for cameras to fully release
 ```
 
-### 5. Run IBVS Pipeline
+> ⚠️ **IMPORTANT:** Always kill the pipeline before starting a new instance.
+> If cameras are busy, wait 2-3 seconds after killing before restarting.
+
+---
+
+## 📊 Performance (after optimizations)
+
+| Metric | Before | After |
+|--------|--------|-------|
+| FPS (COARSE) | ~3 | **~30 FPS** |
+| FPS (FINE/IBVS) | ~3 | **~5-15 FPS** (has servo wait) |
+| YOLO backend | PyTorch CPU | **TensorRT GPU FP16** |
+| Camera format | YUYV | **MJPEG** (less USB bandwidth) |
+
+> **Why FINE mode is slower?** In IBVS mode, the pipeline waits for the servo
+> to physically move before reading the next frame. This is correct behavior —
+> reading without waiting would give stale position data.
+
+---
+
+## 🔧 One-Time Setup (Jetson)
+
+### Install udev rules (permanent device symlinks)
+Cameras and Arduino get **fixed paths** regardless of USB device order:
 
 ```bash
-python3 ibvs_pipeline.py
+sudo tee /etc/udev/rules.d/99-visual-inspection-cameras.rules << 'EOF'
+# Logitech C920 — VID=046d PID=08e5
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="08e5", ATTR{index}=="0", SYMLINK+="logitech"
+
+# Insta360 X3 — VID=2e1a PID=00c1
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="2e1a", ATTRS{idProduct}=="00c1", ATTR{index}=="0", SYMLINK+="insta360"
+
+# Arduino Uno — VID=2341
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2341", SYMLINK+="arduino"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", SYMLINK+="arduino"
+EOF
+
+sudo udevadm control --reload-rules && sudo udevadm trigger
+sleep 2
+ls -la /dev/insta360 /dev/logitech /dev/arduino
 ```
 
-## 📋 System Requirements
+After this, plugging/unplugging anything (joystick, hub, etc.) will never break detection.
 
-**Hardware:**
-- Jetson Orin Nano (8GB recommended)
-- Insta360 X3 camera
-- Logitech C920 webcam
-- Arduino Uno + 2x servos (pan-tilt)
-- USB hub (if needed)
+---
 
-**Software:**
-- JetPack 5.x or 6.x
-- Python 3.8+
-- CUDA support (for GPU acceleration)
-
-## 🔧 Configuration
-
-### Camera Ports
-Edit scripts if camera indices change:
-- `ibvs_pipeline.py` - Auto-detects by name
-- `test_calibration_live.py` - Auto-detects by name
-
-### Arduino Port
-Default: `/dev/ttyACM0`
-If different, edit in scripts:
-```python
-ARDUINO_PORT = '/dev/ttyACM0'  # Change if needed
-ARDUINO_BAUD = 9600
-```
-
-### PID Tuning
-See `docs/IBVS_TUNING_GUIDE.md` for detailed tuning instructions.
-
-Quick tuning (edit `ibvs_pipeline.py` lines 67-75):
-```python
-IBVS_KP_PAN = 0.12   # Increase for faster, decrease for smoother
-IBVS_KI_PAN = 0.002  # Increase to eliminate steady-state error
-IBVS_KD_PAN = 0.02   # Increase to reduce oscillations
-```
-
-## 🎯 Usage
-
-### Test Calibration
+### Generate TensorRT Engine (one-time, ~7 min)
 ```bash
-python3 test_calibration_live.py
+# Link system TensorRT to venv (if not done already)
+echo "/usr/lib/python3/dist-packages" >> venv/lib/python3.10/site-packages/system_packages.pth
+echo "/usr/lib/python3.10/dist-packages" >> venv/lib/python3.10/site-packages/system_packages.pth
+
+# Export
+python3 -c "
+from ultralytics import YOLO
+model = YOLO('weights/yolo11n.pt')
+model.export(format='engine', device=0, half=True, imgsz=640, workspace=4)
+print('Done! weights/yolo11n.engine ready')
+"
 ```
-- Shows dual camera view
-- Tests coarse direction (Insta360 → servos)
-- Press 'q' to quit
 
-### Run Full IBVS Pipeline
-```bash
-python3 ibvs_pipeline.py
-```
-- Stage 1: Insta360 finds object, moves servos (COARSE)
-- Stage 2: Logitech centers object precisely (FINE/IBVS)
-- Press 'q' to quit
+> The `.engine` file is Jetson-specific. Do NOT copy it to other machines.
 
-## 📊 Expected Performance
-
-- **Coarse positioning**: 6-9° accuracy
-- **Fine centering**: <10 pixels (~1-2°)
-- **Convergence time**: 3-5 seconds
-- **Frame rate**: ~20-30 FPS
-- **Distance range**: 0.5m - 5m (distance-independent)
+---
 
 ## 🐛 Troubleshooting
 
-### Cameras not detected
+### "Camera not found" / "can't open camera by index"
 ```bash
-# Check connected cameras
+# 1. Kill any stuck instances
+pkill -9 -f ibvs_pipeline.py && sleep 3
+
+# 2. Check cameras are detected
+ls -la /dev/insta360 /dev/logitech
+
+# 3. Check what video devices exist
 v4l2-ctl --list-devices
 
-# Check permissions
-sudo usermod -aG video $USER
-# Logout and login again
+# 4. Restart
+./run.sh headless
 ```
 
 ### Arduino not connecting
 ```bash
-# Check port
-ls /dev/ttyACM*
+# Check what's detected
+ls /dev/ttyACM* /dev/arduino
 
 # Fix permissions
-sudo usermod -aG dialout $USER
-# Logout and login again
-
-# Or temporary fix
 sudo chmod 666 /dev/ttyACM0
+# OR use udev rules (see One-Time Setup above)
 ```
 
-### YOLO model not found
+### Headed mode — window not showing
 ```bash
-# Download YOLO weights
-cd weights
-wget https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo11n.pt
+# Set display correctly for VNC
+DISPLAY=:1 python3 ibvs_pipeline.py
+
+# OR use run.sh which sets DISPLAY automatically
+./run.sh
 ```
 
-### Overshooting / Oscillations
-- Reduce `IBVS_KP_PAN` and `IBVS_KP_TILT` (line ~68)
-- Reduce `MAX_SPEED_PAN` and `MAX_SPEED_TILT` (line ~303)
-- See `docs/IBVS_TUNING_GUIDE.md`
-
-### Object keeps getting lost
-- Increase `MAX_SPEED` for faster approach
-- Decrease `IBVS_SERVO_DELAY` for faster feedback
-- Check lighting conditions
-
-## 📚 Documentation
-
-- **IBVS_TUNING_GUIDE.md** - Complete PID tuning guide
-- **IBVS_SYSTEM_SUMMARY.md** - System overview and features
-- **THE_COMPLETE_STORY.md** - Full explanation of both stages
-
-## 🔄 Updates
-
-To update from development machine:
+### FPS is low (< 15)
 ```bash
-# On dev machine
-cd /home/dinethra/Jetson_orin_nano
-cp tools/ibvs_pipeline.py jetson_workspace/
-tar -czf jetson_workspace_update.tar.gz jetson_workspace/
-scp jetson_workspace_update.tar.gz jetson@<JETSON_IP>:~/
+# Enable max performance mode
+sudo nvpmodel -m 0
+sudo jetson_clocks
 
-# On Jetson
-cd ~
-tar -xzf jetson_workspace_update.tar.gz
+# Verify TensorRT engine is loaded (check startup output):
+# ✅ TensorRT GPU inference active (FP16)   ← good
+# 🔍 TensorRT engine not found              ← regenerate engine
 ```
-
-## 📝 Notes
-
-- This workspace is self-contained and portable
-- All calibration data is included
-- Virtual environment keeps dependencies isolated
-- Original development files remain untouched
-
-## 🆘 Support
-
-If issues persist:
-1. Check all connections (cameras, Arduino, servos)
-2. Verify camera indices with `v4l2-ctl --list-devices`
-3. Test Arduino separately with Serial Monitor
-4. Check YOLO model loads: `python3 -c "from ultralytics import YOLO; YOLO('weights/yolo11n.pt')"`
-5. Review console output for specific errors
 
 ---
 
-**System ready for deployment! 🚀**
+## 📝 Update Pipeline from Laptop
+
+```bash
+# On LAPTOP:
+scp /home/dinethra/Jetson_orin_nano/jetson_workspace/ibvs_pipeline.py \
+    rgen@192.168.8.181:~/Documents/Visual_Inspection_ws/
+
+# On Jetson — restart to pick up changes:
+./run.sh headless
+```
+
+---
+
+## 🔄 Optimization Progress
+
+| Phase | Status | Impact |
+|-------|--------|--------|
+| ✅ Phase 1 — TensorRT FP16 | Complete | 3 → 30 FPS |
+| ✅ Phase 2 — MJPEG camera mode | Complete | Lower USB bandwidth |
+| ⏳ Phase 3 — Arduino C++ PID | Planned | Faster servo response in FINE |
+| ⏳ Phase 4 — IBVS Y-axis fix | Planned | Fix bounding box drift |
+
+See `docs/OPTIMIZATION_PLAN.md` for full details.
+
+---
+
+**GitHub:** [DinethraDivanjana2001/Visual_Inspection_system_Jetson_orin_nano](https://github.com/DinethraDivanjana2001/Visual_Inspection_system_Jetson_orin_nano)

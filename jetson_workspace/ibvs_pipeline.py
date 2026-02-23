@@ -49,8 +49,9 @@ except ImportError:
 # ============================================================================
 
 class Config:
-    # Arduino
-    ARDUINO_PORT = '/dev/ttyACM0'
+    # Arduino — uses udev symlink /dev/arduino (permanent, set up once)
+    # If symlink not installed yet, falls back to /dev/ttyACM0
+    ARDUINO_PORT = '/dev/arduino' if os.path.exists('/dev/arduino') else '/dev/ttyACM0'
     ARDUINO_BAUD = 9600
     
     # Servo limits
@@ -422,9 +423,10 @@ def main():
         print("Running in simulation mode (no servo control)")
         arduino = None
     
-    # Find cameras
+    # Find cameras — udev symlinks are tried first (/dev/insta360, /dev/logitech)
+    print("\n📷 Detecting cameras...")
     insta_id = find_camera("Insta360")
-    logi_id = find_camera("HD Pro Webcam")  # Logitech C920 identifies as "HD Pro Webcam C920"
+    logi_id  = find_camera("HD Pro Webcam")  # Logitech C920
     
     if insta_id == -1:
         print("❌ ERROR: Insta360 not found!")

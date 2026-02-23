@@ -94,28 +94,61 @@ class Config:
 # ============================================================================
 
 def find_camera(name_pattern):
-    """Find camera by index. Fast 2-layer detection.
-    Layer 1: udev symlink → resolve to integer index directly  
-    Layer 2: Name-based scan across /sys/class/video4linux/
-    """
-    UDEV_MAP = {
-        'Insta360':      '/dev/insta360',
-        'HD Pro Webcam': '/dev/logitech',
-        'Logitech':      '/dev/logitech',
-    }
+    """Find camera — 3 layers so USB replug/joystick never breaks detection.
 
-    # Layer 1: udev symlink (resolve to real device index, no frame-read needed)
-    for key, udev_path in UDEV_MAP.items():
+    Layer 1: udev symlinks (/dev/insta360, /dev/logitech) — permanent, install once
+    Layer 2: USB vendor ID search — reliable regardless of /dev/video* numbering
+    Layer 3: Name-based fallback — original behaviour
+    """
+    # ── USB Vendor IDs ────────────────────────────────────────────────────────
+    VENDOR_MAP = {
+        'Insta360':      ('2e1a', '/dev/insta360'),
+        'HD Pro Webcam': ('046d', '/dev/logitech'),
+        'Logitech':      ('046d', '/dev/logitech'),
+    }
+    vendor_id  = None
+    udev_path  = None
+    for key, (vid, udev) in VENDOR_MAP.items():
         if key in name_pattern or name_pattern in key:
-            if os.path.exists(udev_path):
-                real = os.path.realpath(udev_path)   # /dev/video2
-                if '/dev/video' in real:
-                    idx = int(real.replace('/dev/video', ''))
-                    print(f"   [udev] {udev_path} → /dev/video{idx}")
-                    return idx
+            vendor_id = vid
+            udev_path = udev
             break
 
-    # Layer 2: name-based scan (original reliable fallback)
+    # ── Layer 1: udev symlink (most reliable — fixed path) ────────────────────
+    if udev_path and os.path.exists(udev_path):
+        cap = cv2.VideoCapture(udev_path)
+        if cap.isOpened():
+            ret, frame = cap.read()
+            cap.release()
+            if ret and frame is not None and frame.size > 0:
+                idx = int(os.path.realpath(udev_path).replace('/dev/video', ''))
+                print(f"   [udev] {udev_path} → /dev/video{idx}")
+                return idx
+
+    # ── Layer 2: USB vendor ID via sysfs ──────────────────────────────────────
+    if vendor_id:
+        for path in sorted(glob.glob('/sys/class/video4linux/video*')):
+            try:
+                check = os.path.realpath(path)
+                for _ in range(8):
+                    vid_file = os.path.join(check, 'idVendor')
+                    if os.path.exists(vid_file):
+                        with open(vid_file) as f:
+                            if f.read().strip() == vendor_id:
+                                idx = int(os.path.basename(path).replace('video', ''))
+                                cap = cv2.VideoCapture(idx)
+                                if cap.isOpened():
+                                    ret, frame = cap.read()
+                                    cap.release()
+                                    if ret and frame is not None and frame.size > 0:
+                                        print(f"   [vendor-id] /dev/video{idx}")
+                                        return idx
+                        break
+                    check = os.path.dirname(check)
+            except:
+                pass
+
+    # ── Layer 3: Name-based fallback (original) ───────────────────────────────
     for path in sorted(glob.glob('/sys/class/video4linux/video*')):
         try:
             name_path = os.path.join(path, 'name')
@@ -125,14 +158,17 @@ def find_camera(name_pattern):
                 name = f.read().strip()
             if name_pattern in name:
                 idx = int(path.split('video')[-1])
-                print(f"   [name] /dev/video{idx} ({name})")
-                return idx
+                cap = cv2.VideoCapture(idx)
+                if cap.isOpened():
+                    ret, frame = cap.read()
+                    cap.release()
+                    if ret and frame is not None and frame.size > 0:
+                        print(f"   [name] /dev/video{idx}")
+                        return idx
         except:
             pass
 
     return -1
-
-
 
 
 def find_arduino():
@@ -446,26 +482,30 @@ def main():
         return
     
     print(f"📷 Insta360: /dev/video{insta_id}")
-    print(f"📷 Logitech: /dev/video{logi_id}")
-    
-    # Open cameras
+    print(f"📷 Logitech:  /dev/video{logi_id}")
+
+    # Open cameras in MJPEG mode (faster USB transfer than YUYV)
     cap_insta = cv2.VideoCapture(insta_id)
+    cap_insta.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
     cap_insta.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap_insta.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
-    
+    cap_insta.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # always fresh frame
+
     cap_logi = cv2.VideoCapture(logi_id)
+    cap_logi.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
     cap_logi.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap_logi.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap_logi.set(cv2.CAP_PROP_BUFFERSIZE, 1)    # always fresh frame
     
     # Load YOLO — prefer TensorRT engine for GPU speed
     if os.path.exists(config.YOLO_ENGINE):
         print(f"🚀 Loading TensorRT engine: {config.YOLO_ENGINE}")
-        model = YOLO(config.YOLO_ENGINE)
+        model = YOLO(config.YOLO_ENGINE, task='detect')   # suppress task warning
         print(f"✅ TensorRT GPU inference active (FP16)")
     else:
         print(f"🔍 TensorRT engine not found, using PyTorch: {config.YOLO_MODEL}")
         model = YOLO(config.YOLO_MODEL)
-        print(f"⚠️  Run export script to generate TensorRT engine for 3x speedup")
+        print(f"⚠️  Run export to generate TensorRT engine for 10x speedup")
     
     # Initialize tracker
     tracker = SimpleTracker(max_disappeared=config.TRACK_LOST_THRESHOLD)

@@ -415,15 +415,34 @@ def main():
     current_tilt = 90
     ibvs_iterations = 0
     
+    # Parse headless flag
+    import argparse
+    parser = argparse.ArgumentParser(description='IBVS Pipeline')
+    parser.add_argument('--headless', action='store_true',
+                        help='No display window — FPS printed to terminal only')
+    args, _ = parser.parse_known_args()
+    HEADLESS = args.headless
+
     print("\n" + "="*60)
     print("🎯 IBVS PIPELINE STARTED")
     print("="*60)
     print("Stage 1: COARSE - Insta360 detects and points Logitech")
-    print("Stage 2: FINE - Logitech IBVS centers object precisely")
-    print("Press 'q' to quit")
+    print("Stage 2: FINE   - Logitech IBVS centers object precisely")
+    if HEADLESS:
+        print("Mode: HEADLESS → No window. FPS printed to terminal every second.")
+    else:
+        print("Mode: HEADED   → Window visible. Press 'q' to quit.")
+    print("FPS printed to terminal every second in both modes.")
+    print("Press Ctrl+C to stop")
     print("="*60 + "\n")
-    
-    while True:
+
+    # FPS tracking
+    fps_count = 0
+    fps_t0 = time.time()
+    current_fps = 0.0
+
+    try:
+     while True:
         # Read frames
         ret_insta, frame_insta = cap_insta.read()
         ret_logi, frame_logi = cap_logi.read()
@@ -561,31 +580,45 @@ def main():
                 ibvs_iterations = 0
         
         # ====================================================================
-        # DISPLAY
+        # FPS TRACKING — printed every second in BOTH headed and headless modes
         # ====================================================================
-        # Combine views
-        combined = np.hstack((frame_insta, frame_logi_display))
-        
-        # Add labels
-        cv2.putText(combined, "INSTA360 (Coarse)", (10, 330), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-        cv2.putText(combined, "LOGITECH (IBVS)", (650, 330), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-        cv2.putText(combined, f"Mode: {state}", (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        
-        cv2.imshow("IBVS Pipeline", combined)
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        fps_count += 1
+        elapsed = time.time() - fps_t0
+        if elapsed >= 1.0:
+            current_fps = fps_count / elapsed
+            fps_count = 0
+            fps_t0 = time.time()
+            print(f"[FPS] {current_fps:.1f} fps  |  State: {state}  "
+                  f"|  Pan={current_pan}°  Tilt={current_tilt}°")
+
+        # ====================================================================
+        # DISPLAY — headed shows window, headless skips all drawing
+        # ====================================================================
+        if not HEADLESS:
+            combined = np.hstack((frame_insta, frame_logi_display))
+            cv2.putText(combined, "INSTA360 (Coarse)", (10, 330),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            cv2.putText(combined, "LOGITECH (IBVS)", (650, 330),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            cv2.putText(combined, f"Mode: {state}  FPS: {current_fps:.1f}",
+                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            cv2.imshow("IBVS Pipeline", combined)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        # Headless: no drawing, no window — maximum CPU free for YOLO+servo
     
-    # Cleanup
-    cap_insta.release()
-    cap_logi.release()
-    if arduino:
-        arduino.close()
-    cv2.destroyAllWindows()
-    print("\n✅ Pipeline stopped")
+    # end while
+    except KeyboardInterrupt:
+        print("\n⚠️  Stopped by Ctrl+C")
+    finally:
+        cap_insta.release()
+        cap_logi.release()
+        if not HEADLESS:
+            cv2.destroyAllWindows()
+        if arduino:
+            arduino.close()
+        print("\n✅ Pipeline stopped")
+
 
 if __name__ == "__main__":
     main()

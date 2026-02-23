@@ -57,9 +57,10 @@ class Config:
     PAN_MIN, PAN_MAX = 0, 180
     TILT_MIN, TILT_MAX = 20, 160
     
-    # YOLO
-    YOLO_MODEL = "weights/yolo11n.pt"
-    YOLO_CONF = 0.5
+    # YOLO — uses TensorRT engine if available (3x faster), else falls back to PyTorch
+    YOLO_ENGINE = "weights/yolo11n.engine"   # TensorRT FP16 (Jetson GPU)
+    YOLO_MODEL  = "weights/yolo11n.pt"       # PyTorch fallback (CPU)
+    YOLO_CONF   = 0.5
     
     # IBVS Control (PID Tuning)
     IBVS_ENABLED = True
@@ -395,9 +396,15 @@ def main():
     cap_logi.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap_logi.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     
-    # Load YOLO
-    print(f"🔍 Loading YOLO model...")
-    model = YOLO(config.YOLO_MODEL)
+    # Load YOLO — prefer TensorRT engine for GPU speed
+    if os.path.exists(config.YOLO_ENGINE):
+        print(f"🚀 Loading TensorRT engine: {config.YOLO_ENGINE}")
+        model = YOLO(config.YOLO_ENGINE)
+        print(f"✅ TensorRT GPU inference active (FP16)")
+    else:
+        print(f"🔍 TensorRT engine not found, using PyTorch: {config.YOLO_MODEL}")
+        model = YOLO(config.YOLO_MODEL)
+        print(f"⚠️  Run export script to generate TensorRT engine for 3x speedup")
     
     # Initialize tracker
     tracker = SimpleTracker(max_disappeared=config.TRACK_LOST_THRESHOLD)

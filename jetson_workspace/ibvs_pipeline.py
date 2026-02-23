@@ -484,15 +484,13 @@ def main():
     print(f"📷 Insta360: /dev/video{insta_id}")
     print(f"📷 Logitech:  /dev/video{logi_id}")
 
-    # Open cameras in MJPEG mode (faster USB transfer than YUYV)
+    # Open cameras (standard mode — MJPEG removed, Insta360 doesn't support it on Jetson)
     cap_insta = cv2.VideoCapture(insta_id)
-    cap_insta.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
     cap_insta.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap_insta.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
     cap_insta.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # always fresh frame
 
     cap_logi = cv2.VideoCapture(logi_id)
-    cap_logi.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
     cap_logi.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap_logi.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     cap_logi.set(cv2.CAP_PROP_BUFFERSIZE, 1)    # always fresh frame

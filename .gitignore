@@ -30,6 +30,13 @@ build/
 *.tar.xz
 *.zip
 
+# ── TensorRT engine files (device-specific, cannot share) ─────
+*.engine
+*.trt
+
+# ── CUDA installer debs (downloaded during setup) ─────────────
+cuda-keyring*.deb
+
 # ── Nested git repo (separate go2 drone project) ──────────────
 Codebase/
 

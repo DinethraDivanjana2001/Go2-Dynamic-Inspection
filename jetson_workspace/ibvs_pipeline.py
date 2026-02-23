@@ -283,7 +283,8 @@ class IBVSController:
         self.fx = intrinsics['fx']
         self.fy = intrinsics['fy']
         self.cx = intrinsics['cx']
-        self.cy = intrinsics['cy']
+        # cy calibrated for 480p — scale to 360p since YOLO now runs on display frame (640x360)
+        self.cy = intrinsics['cy'] * (360.0 / 480.0)   # 257.50 → ~193.1
         self.config = config
         
         # PID gains (tune these!)
@@ -599,8 +600,10 @@ def main():
         # STAGE 2: FINE CENTERING (Logitech IBVS)
         # ====================================================================
         elif state == "FINE":
-            results_logi = model(frame_logi, verbose=False, conf=config.YOLO_CONF)
-            
+            # Run YOLO on the DISPLAY frame (640x360) — keeps all coords in display space
+            # This eliminates the Y-axis bbox drift caused by 480p→360p mismatch
+            results_logi = model(frame_logi_display, verbose=False, conf=config.YOLO_CONF)
+
             detection = None
             if results_logi and len(results_logi[0].boxes) > 0:
                 box = results_logi[0].boxes[0]
@@ -653,10 +656,13 @@ def main():
                 current_tilt = new_tilt
                 ibvs_iterations += 1
                 
-                # Draw error vector
-                center_x, center_y = int(intrinsics['cx']), int(intrinsics['cy'])
-                cv2.circle(frame_logi_display, (center_x, center_y), 5, (0, 0, 255), -1)
-                cv2.arrowedLine(frame_logi_display, (center_x, center_y), 
+                # Draw error vector — all in 360p display space
+                # cy calibrated in 480p → scale to 360p (same x, y scaled by 360/480)
+                disp_cx = int(intrinsics['cx'])
+                disp_cy = int(intrinsics['cy'] * (360.0 / 480.0))  # 257.50 → ~193
+                cv2.circle(frame_logi_display, (disp_cx, disp_cy), 5, (0, 0, 255), -1)
+                cv2.arrowedLine(frame_logi_display,
+                               (disp_cx, disp_cy),
                                (int(centroid[0]), int(centroid[1])), (255, 0, 0), 2)
                 
                 cv2.putText(frame_logi_display, f"IBVS: err=({e_x:.1f},{e_y:.1f}) iter={ibvs_iterations}", 

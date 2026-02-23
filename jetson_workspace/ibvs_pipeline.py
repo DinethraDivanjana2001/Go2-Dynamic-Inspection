@@ -171,6 +171,48 @@ def find_camera(name_pattern):
     return -1
 
 
+def find_arduino():
+    """Scan all serial ports and find Arduino by USB vendor ID.
+    Works regardless of joystick/USB hub/device enumeration order.
+
+    Arduino vendor IDs:
+      2341 = Official Arduino (Uno, Mega, etc.)
+      1a86 = CH340 clone (common cheap Arduinos)
+      0403 = FTDI clone
+    """
+    ARDUINO_VIDS = {'2341', '1a86', '0403'}
+
+    # Check all ttyACM and ttyUSB ports
+    import glob as _glob
+    ports = sorted(_glob.glob('/dev/ttyACM*') + _glob.glob('/dev/ttyUSB*'))
+
+    if not ports:
+        print("   [arduino] No serial ports found")
+        return None
+
+    for port in ports:
+        try:
+            # Walk sysfs to find vendor ID for this serial port
+            dev_name = os.path.basename(port)  # e.g. ttyACM0
+            sys_path = f'/sys/class/tty/{dev_name}'
+            check = os.path.realpath(sys_path)
+            for _ in range(8):
+                vid_file = os.path.join(check, 'idVendor')
+                if os.path.exists(vid_file):
+                    with open(vid_file) as f:
+                        vid = f.read().strip()
+                    if vid in ARDUINO_VIDS:
+                        print(f"   [arduino] Found at {port} (VID={vid})")
+                        return port
+                    break  # Found vendor but not Arduino — stop walking up
+                check = os.path.dirname(check)
+        except:
+            pass
+
+    print(f"   [arduino] Not found in: {ports}")
+    return None
+
+
 def load_logitech_intrinsics():
     """Load Logitech camera intrinsics from Kalibr calibration"""
     yaml_path = 'config/logitech_intrinsics.yaml'
@@ -413,15 +455,19 @@ def main():
     # Initialize IBVS controller
     ibvs = IBVSController(intrinsics, config)
     
-    # Connect Arduino
-    try:
-        arduino = serial.Serial(config.ARDUINO_PORT, config.ARDUINO_BAUD, timeout=1.0)
-        time.sleep(2)
-        print("✅ Arduino connected")
-    except Exception as e:
-        print(f"⚠️ Arduino not found: {e}")
-        print("Running in simulation mode (no servo control)")
-        arduino = None
+    # Connect Arduino — auto-detected by USB vendor ID at startup
+    print("\n🔌 Detecting devices...")
+    arduino_port = find_arduino()
+    arduino = None
+    if arduino_port:
+        try:
+            arduino = serial.Serial(arduino_port, config.ARDUINO_BAUD, timeout=1.0)
+            time.sleep(2)
+            print(f"✅ Arduino connected at {arduino_port}")
+        except Exception as e:
+            print(f"⚠️ Arduino found at {arduino_port} but failed to open: {e}")
+    else:
+        print("⚠️ Arduino not found — running in simulation mode (no servo control)")
     
     # Find cameras — udev symlinks are tried first (/dev/insta360, /dev/logitech)
     print("\n📷 Detecting cameras...")

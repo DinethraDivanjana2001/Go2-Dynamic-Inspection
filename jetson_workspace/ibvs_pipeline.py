@@ -93,11 +93,62 @@ class Config:
 # ============================================================================
 
 def find_camera(name_pattern):
-    """Find camera by name pattern and verify it can open"""
-    paths = sorted(glob.glob('/sys/class/video4linux/video*'))
-    candidates = []
-    
-    for path in paths:
+    """Find camera — 3 layers so USB replug/joystick never breaks detection.
+
+    Layer 1: udev symlinks (/dev/insta360, /dev/logitech) — permanent, install once
+    Layer 2: USB vendor ID search — reliable regardless of /dev/video* numbering
+    Layer 3: Name-based fallback — original behaviour
+    """
+    # ── USB Vendor IDs ────────────────────────────────────────────────────────
+    VENDOR_MAP = {
+        'Insta360':      ('2e1a', '/dev/insta360'),
+        'HD Pro Webcam': ('046d', '/dev/logitech'),
+        'Logitech':      ('046d', '/dev/logitech'),
+    }
+    vendor_id  = None
+    udev_path  = None
+    for key, (vid, udev) in VENDOR_MAP.items():
+        if key in name_pattern or name_pattern in key:
+            vendor_id = vid
+            udev_path = udev
+            break
+
+    # ── Layer 1: udev symlink (most reliable — fixed path) ────────────────────
+    if udev_path and os.path.exists(udev_path):
+        cap = cv2.VideoCapture(udev_path)
+        if cap.isOpened():
+            ret, frame = cap.read()
+            cap.release()
+            if ret and frame is not None and frame.size > 0:
+                idx = int(os.path.realpath(udev_path).replace('/dev/video', ''))
+                print(f"   [udev] {udev_path} → /dev/video{idx}")
+                return idx
+
+    # ── Layer 2: USB vendor ID via sysfs ──────────────────────────────────────
+    if vendor_id:
+        for path in sorted(glob.glob('/sys/class/video4linux/video*')):
+            try:
+                check = os.path.realpath(path)
+                for _ in range(8):
+                    vid_file = os.path.join(check, 'idVendor')
+                    if os.path.exists(vid_file):
+                        with open(vid_file) as f:
+                            if f.read().strip() == vendor_id:
+                                idx = int(os.path.basename(path).replace('video', ''))
+                                cap = cv2.VideoCapture(idx)
+                                if cap.isOpened():
+                                    ret, frame = cap.read()
+                                    cap.release()
+                                    if ret and frame is not None and frame.size > 0:
+                                        print(f"   [vendor-id] /dev/video{idx}")
+                                        return idx
+                        break
+                    check = os.path.dirname(check)
+            except:
+                pass
+
+    # ── Layer 3: Name-based fallback (original) ───────────────────────────────
+    for path in sorted(glob.glob('/sys/class/video4linux/video*')):
         try:
             name_path = os.path.join(path, 'name')
             if not os.path.exists(name_path):
@@ -106,20 +157,18 @@ def find_camera(name_pattern):
                 name = f.read().strip()
             if name_pattern in name:
                 idx = int(path.split('video')[-1])
-                candidates.append(idx)
+                cap = cv2.VideoCapture(idx)
+                if cap.isOpened():
+                    ret, frame = cap.read()
+                    cap.release()
+                    if ret and frame is not None and frame.size > 0:
+                        print(f"   [name] /dev/video{idx}")
+                        return idx
         except:
             pass
-    
-    # Test each candidate to see if it can actually open
-    for idx in candidates:
-        cap = cv2.VideoCapture(idx)
-        if cap.isOpened():
-            ret, _ = cap.read()
-            cap.release()
-            if ret:
-                return idx
-    
+
     return -1
+
 
 def load_logitech_intrinsics():
     """Load Logitech camera intrinsics from Kalibr calibration"""

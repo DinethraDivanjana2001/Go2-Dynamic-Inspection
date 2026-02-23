@@ -116,7 +116,7 @@ def find_camera(name_pattern):
 
     # ── Layer 1: udev symlink (most reliable — fixed path) ────────────────────
     if udev_path and os.path.exists(udev_path):
-        cap = cv2.VideoCapture(udev_path, cv2.CAP_V4L2)
+        cap = cv2.VideoCapture(udev_path)
         if cap.isOpened():
             ret, frame = cap.read()
             cap.release()
@@ -136,7 +136,7 @@ def find_camera(name_pattern):
                         with open(vid_file) as f:
                             if f.read().strip() == vendor_id:
                                 idx = int(os.path.basename(path).replace('video', ''))
-                                cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
+                                cap = cv2.VideoCapture(idx)
                                 if cap.isOpened():
                                     ret, frame = cap.read()
                                     cap.release()
@@ -158,7 +158,7 @@ def find_camera(name_pattern):
                 name = f.read().strip()
             if name_pattern in name:
                 idx = int(path.split('video')[-1])
-                cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
+                cap = cv2.VideoCapture(idx)
                 if cap.isOpened():
                     ret, frame = cap.read()
                     cap.release()
@@ -485,12 +485,12 @@ def main():
     print(f"📷 Logitech:  /dev/video{logi_id}")
 
     # Open cameras (standard mode — MJPEG removed, Insta360 doesn't support it on Jetson)
-    cap_insta = cv2.VideoCapture(insta_id, cv2.CAP_V4L2)
+    cap_insta = cv2.VideoCapture(insta_id)
     cap_insta.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap_insta.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
     cap_insta.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # always fresh frame
 
-    cap_logi = cv2.VideoCapture(logi_id, cv2.CAP_V4L2)
+    cap_logi = cv2.VideoCapture(logi_id)
     cap_logi.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap_logi.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     cap_logi.set(cv2.CAP_PROP_BUFFERSIZE, 1)    # always fresh frame

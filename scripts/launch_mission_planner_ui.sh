@@ -3,14 +3,17 @@
 # Trap SIGINT to kill background processes when the script is terminated
 trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 
-# 1. Launch Voxel Publisher Node
-echo "Starting Voxel Publisher Node..."
-ros2 run voxel_grid_filter voxel_node --ros-args -p voxel_size:=0.5 &
-PID1=$!
 
 # Determine the root directory of the workspace
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(dirname "$SCRIPT_DIR")"
+
+source "$WORKSPACE_DIR/workspaces/voxel_ws/install/setup.sh"
+
+# 1. Launch Voxel Publisher Node
+echo "Starting Voxel Publisher Node..."
+ros2 run voxel_grid_filter voxel_node --ros-args -p voxel_size:=0.5 &
+PID1=$!
 
 # Start Backend
 echo "Starting Backend Server..."

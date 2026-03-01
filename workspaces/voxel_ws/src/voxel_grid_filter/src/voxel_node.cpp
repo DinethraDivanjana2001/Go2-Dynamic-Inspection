@@ -26,6 +26,8 @@ public:
 private:
   void topic_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
   {
+    RCLCPP_INFO(this->get_logger(), "Received pointcloud with %d x %d points", msg->width, msg->height);
+
     // 1. Convert ROS msg to PCL data type
     pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(*msg, *pcl_cloud);

@@ -1,23 +1,12 @@
-import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import PointCloud2, Joy
-from visualization_msgs.msg import Marker
-from geometry_msgs.msg import PointStamped, PoseStamped
-from nav_msgs.msg import Odometry
-import sensor_msgs_py.point_cloud2 as pc2
-import numpy as np
-import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import threading
-import asyncio
 import json
 import struct
 import math
 import os
 import time
 from datetime import datetime, timedelta
+import uvicorn
+import asyncio
+import paho.mqtt.client as mqtt
 
 # SQLAlchemy & Auth
 from sqlalchemy import create_engine, Column, Integer, String
@@ -32,18 +21,44 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# --- MQTT Configuration ---
+MQTT_BROKER = os.getenv("MQTT_BROKER", "broker.hivemq.com")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+BASE_TOPIC = "robo_gen_labs/go2_robot_1"
 
-# TF2
-from tf2_ros.buffer import Buffer
-from tf2_ros.transform_listener import TransformListener
-from rclpy.time import Time
-from rclpy.duration import Duration
+# Global State from MQTT
+mqtt_state = {
+    "points": b"",
+    "tfs": {},
+    "path": [],
+    "video": ""
+}
 
-# Camera & Image
-import cv2
-from cv_bridge import CvBridge
-import base64
-from sensor_msgs.msg import Image
+def on_mqtt_connect(client, userdata, flags, rc):
+    print(f"MQTT Connected with result code {rc}")
+    client.subscribe(f"{BASE_TOPIC}/telemetry/#")
+
+def on_mqtt_message(client, userdata, msg):
+    topic = msg.topic
+    if topic.endswith("/points"):
+        mqtt_state["points"] = msg.payload
+    elif topic.endswith("/tf"):
+        try:
+            data = json.loads(msg.payload.decode())
+            mqtt_state["tfs"] = data.get("tfs", {})
+        except: pass
+    elif topic.endswith("/path"):
+        try:
+            data = json.loads(msg.payload.decode())
+            mqtt_state["path"] = data.get("path", [])
+        except: pass
+    elif topic.endswith("/video"):
+        mqtt_state["video"] = msg.payload.decode('utf-8')
+
+mqtt_client = mqtt.Client(client_id="go2_fastapi_backend", protocol=mqtt.MQTTv311)
+mqtt_client.on_connect = on_mqtt_connect
+mqtt_client.on_message = on_mqtt_message
+
 
 # Initialize FastAPI
 app = FastAPI()
@@ -119,11 +134,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
 
 
 # Global buffers
-latest_points = []
-latest_path_points = [] 
-vehicle_z = 0.0
-lock = threading.Lock()
-ros_node = None
 WAYPOINTS_FILE = "waypoints.json"
 
 # Models
@@ -138,116 +148,18 @@ class Waypoint(BaseModel):
     y: float
     z: float
 
-class ROSNode(Node):
-    def __init__(self):
-        super().__init__('mission_planner_ui_backend')
-        
-        # TF Buffer
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
-
-        # Subscribers
-        self.create_subscription(PointCloud2, '/registered_scan_o3d/voxelized', self.pc_callback, 10)
-        self.create_subscription(Marker, '/viz_path_topic', self.path_callback, 10)
-        self.create_subscription(Odometry, '/state_estimation', self.odom_callback, 10)
-        self.create_subscription(Image, '/camera/image_raw', self.image_callback, 10)
-
-        # Publishers
-        self.goal_pub = self.create_publisher(PointStamped, '/goal_point', 10)
-        self.joy_pub = self.create_publisher(Joy, '/joy', 10)
-        
-        # TF Buffer
-        # State
-        self.latest_points = None
-        self.latest_path = []
-        self.vehicle_z = 0.0
-        self.latest_odom = None
-        self.latest_frame = None # JPEG bytes
-        self.bridge = CvBridge()
-        
-        self.last_voxel_time = 0
-        self.voxel_interval = 2.0 # 2 Seconds Update Rate
-
-        self.get_logger().info("ROS Node Started. Listening to /registered_scan_o3d/voxelized, /camera/image_raw etc.")
-
-    def pc_callback(self, msg):
-        # Throttle Voxel Updates
-        now = time.time()
-        if now - self.last_voxel_time < self.voxel_interval:
-            return
-        self.last_voxel_time = now
-
-        points = []
-        gen = pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True)
-        for p in gen:
-            points.extend([p[0], p[1], p[2]])
-        
-        self.latest_points = struct.pack(f'{len(points)}f', *points)
-
-    def path_callback(self, msg):
-        if msg.type == Marker.LINE_STRIP or msg.type == Marker.LINE_LIST:
-            p_list = [{'x': p.x, 'y': p.y, 'z': p.z} for p in msg.points]
-            self.latest_path = p_list
-
-    def odom_callback(self, msg):
-        self.vehicle_z = msg.pose.pose.position.z
-        self.latest_odom = msg
-
-    def image_callback(self, msg):
-        try:
-            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            # Resize for performance if needed
-            cv_image = cv2.resize(cv_image, (320, 240))
-            _, buffer = cv2.imencode('.jpg', cv_image, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
-            self.latest_frame = base64.b64encode(buffer).decode('utf-8')
-        except Exception as e:
-            self.get_logger().error(f"Image Error: {e}")
-
-    def publish_goal(self, x, y, z):
-        # 1. Publish Joy to trigger autonomy mode (Simulating GoalpointTool.cpp)
-        joy_msg = Joy()
-        joy_msg.header.stamp = self.get_clock().now().to_msg()
-        joy_msg.header.frame_id = "goalpoint_tool"
-        joy_msg.axes = [0.0, 0.0, -1.0, 0.0, 1.0, 1.0, 0.0, 0.0]
-        joy_msg.buttons = [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0] # Button 7 is index 7 (8th button)? C++ push_back order check:
-        # C++: 7 zeros, then a 1. Index 7.
-        self.joy_pub.publish(joy_msg)
-
-        # 2. Publish Goal Point
-        goal_msg = PointStamped()
-        goal_msg.header.stamp = joy_msg.header.stamp
-        goal_msg.header.frame_id = "map"
-        goal_msg.point.x = x
-        goal_msg.point.y = y
-        # Use current vehicle_z if z not provided or flat
-        goal_msg.point.z = z if z != 0.0 else self.vehicle_z 
-
-        # Publish twice like the C++ tool does
-        self.goal_pub.publish(goal_msg)
-        time.sleep(0.01)
-        self.goal_pub.publish(goal_msg)
-        
-        self.get_logger().info(f"Published Goal: {x}, {y}, {goal_msg.point.z}")
-
-
-def ros_spin_thread(node):
-    try:
-        rclpy.spin(node)
-    except Exception as e:
-        print(f"ROS Spin Error: {e}")
-
 @app.on_event("startup")
 async def startup_event():
-    rclpy.init()
-    global ros_node
-    ros_node = ROSNode()
-    t = threading.Thread(target=ros_spin_thread, args=(ros_node,), daemon=True)
-    t.start()
+    try:
+        mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        mqtt_client.loop_start()
+    except Exception as e:
+        print(f"MQTT Startup Error: {e}")
 
 @app.on_event("shutdown")
 def shutdown_event():
-    if rclpy.ok():
-        rclpy.shutdown()
+    mqtt_client.loop_stop()
+    mqtt_client.disconnect()
 
 # --- WebSocket Endpoints ---
 @app.websocket("/ws/points")
@@ -265,9 +177,8 @@ async def websocket_points(websocket: WebSocket, token: str = None, db: Session 
     try:
         while True:
             await asyncio.sleep(0.1)
-            
-            if ros_node and ros_node.latest_points:
-                await websocket.send_bytes(ros_node.latest_points)
+            if mqtt_state["points"]:
+                await websocket.send_bytes(mqtt_state["points"])
     except WebSocketDisconnect:
         pass
 
@@ -289,52 +200,10 @@ async def websocket_tf(websocket: WebSocket, token: str = None, db: Session = De
         while True:
             await asyncio.sleep(0.05) # 20Hz Update
             
-            if not ros_node:
-                continue
-
-            tfs_snapshot = {}
-            # 1. Try Standard TF Lookup
-            for child in TARGET_FRAMES:
-                try:
-                    t = ros_node.tf_buffer.lookup_transform(
-                        "camera_init", # Often the map frame in LIO
-                        child,
-                        Time(),
-                        Duration(seconds=0.0) 
-                    )
-                    tfs_snapshot[child] = {
-                        "translation": {
-                            "x": t.transform.translation.x,
-                            "y": t.transform.translation.y,
-                            "z": t.transform.translation.z
-                        },
-                        "rotation": {
-                            "x": t.transform.rotation.x,
-                            "y": t.transform.rotation.y,
-                            "z": t.transform.rotation.z,
-                            "w": t.transform.rotation.w
-                        }
-                    }
-                except:
-                    pass
-            
-            # 2. Fallback: If base_link missing, use Odometry
-            # (Assuming base_link is the robot body)
-            if "base_link" not in tfs_snapshot and ros_node.latest_odom:
-                 p = ros_node.latest_odom.pose.pose.position
-                 q = ros_node.latest_odom.pose.pose.orientation
-                 tfs_snapshot["base_link"] = {
-                    "translation": {"x": p.x, "y": p.y, "z": p.z},
-                    "rotation": {"x": q.x, "y": q.y, "z": q.z, "w": q.w}
-                 }
-
             data_packet = {
-                "tfs": tfs_snapshot,
-                "path": []
+                "tfs": mqtt_state["tfs"],
+                "path": mqtt_state["path"]
             }
-            if ros_node:
-                data_packet["path"] = ros_node.latest_path
-            
             await websocket.send_json(data_packet)
     except WebSocketDisconnect:
         pass
@@ -353,8 +222,8 @@ async def websocket_video(websocket: WebSocket, token: str = None, db: Session =
     await websocket.accept()
     try:
         while True:
-            if ros_node and ros_node.latest_frame:
-                await websocket.send_text(ros_node.latest_frame)
+            if mqtt_state["video"]:
+                await websocket.send_text(mqtt_state["video"])
             await asyncio.sleep(0.1) # 10 FPS
     except Exception:
         pass
@@ -396,10 +265,10 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 
 @app.post("/navigate")
 async def navigate_to_goal(goal: GoalRequest, current_user: User = Depends(get_current_user)):
-    if ros_node:
-        ros_node.publish_goal(goal.x, goal.y, goal.z)
-        return {"status": "Goal sent", "target": goal}
-    raise HTTPException(status_code=503, detail="ROS Node not ready")
+    payload = json.dumps({"x": goal.x, "y": goal.y, "z": goal.z})
+    print(f"DEBUG: server.py received /navigate from frontend: {payload}")
+    mqtt_client.publish(f"{BASE_TOPIC}/commands/navigate", payload=payload, qos=1)
+    return {"status": "Goal sent to MQTT", "target": goal}
 
 @app.get("/waypoints")
 def get_waypoints(current_user: User = Depends(get_current_user)):

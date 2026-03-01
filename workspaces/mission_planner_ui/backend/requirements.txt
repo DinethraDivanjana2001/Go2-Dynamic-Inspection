@@ -1,5 +1,12 @@
 fastapi
 uvicorn
 websockets
-numpy
-sensor-msgs-py
+paho-mqtt
+sqlalchemy
+passlib[bcrypt]
+bcrypt==4.0.1
+python-jose[cryptography]
+python-multipart
+pydantic
+python-dotenv
+psycopg2-binary

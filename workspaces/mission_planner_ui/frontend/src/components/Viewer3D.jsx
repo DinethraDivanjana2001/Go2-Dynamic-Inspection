@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Line, Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { ChevronDown, ChevronRight, Video, MapPin, Sliders, Settings, Sun, Moon, Layout, ArrowUp } from 'lucide-react';
+import { ChevronDown, ChevronRight, Video, MapPin, Sliders, Settings, Sun, Moon, Layout, ArrowUp, User as UserIcon } from 'lucide-react';
 
 // --- Configuration ---
 const VOXEL_SIZE = 0.18;
@@ -218,7 +218,8 @@ const CameraFeed = () => {
 
     useEffect(() => {
         const token = localStorage.getItem('auth_token');
-        const ws = new WebSocket(`ws://localhost:8000/ws/video?token=${token}`);
+        const HOST = window.location.hostname;
+        const ws = new WebSocket(`ws://${HOST}:8000/ws/video?token=${token}`);
         ws.onmessage = (event) => {
             setImageSrc(`data:image/jpeg;base64,${event.data}`);
         };
@@ -300,8 +301,21 @@ const SidebarCategory = ({ title, icon: Icon, children, defaultOpen = false, the
     );
 };
 
-const Viewer3D = ({ onBack }) => {
+const Viewer3D = ({ onBack, onLogout }) => {
     const [selectedPoint, setSelectedPoint] = useState(null);
+    const [username, setUsername] = useState("");
+
+    useEffect(() => {
+        const token = localStorage.getItem('auth_token');
+        if (token) {
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                if (payload.sub) setUsername(payload.sub);
+            } catch (e) {
+                console.error("Failed to parse token");
+            }
+        }
+    }, []);
     const [waypoints, setWaypoints] = useState([]);
     const [wpName, setWpName] = useState("");
     const [currentTheme, setCurrentTheme] = useState('dark');
@@ -316,12 +330,13 @@ const Viewer3D = ({ onBack }) => {
     useEffect(() => {
         const fetchWps = () => {
             const token = localStorage.getItem('auth_token');
-            fetch('http://localhost:8000/waypoints', {
+            const HOST = window.location.hostname;
+            fetch(`http://${HOST}:8000/waypoints`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             }).then(res => {
                 if (res.ok) return res.json();
                 throw new Error("Unauthorized");
-            }).then(setWaypoints).catch(e => console.error(e));
+            }).then(data => setWaypoints(data || [])).catch(e => console.error(e));
         }
         fetchWps();
         const interval = setInterval(fetchWps, 2000);
@@ -356,7 +371,8 @@ const Viewer3D = ({ onBack }) => {
 
     const handleNavigate = (point) => {
         const token = localStorage.getItem('auth_token');
-        fetch('http://localhost:8000/navigate', {
+        const HOST = window.location.hostname;
+        fetch(`http://${HOST}:8000/navigate`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -369,7 +385,8 @@ const Viewer3D = ({ onBack }) => {
     const handleSaveWaypoint = () => {
         if (!selectedPoint || !wpName) return;
         const token = localStorage.getItem('auth_token');
-        fetch('http://localhost:8000/waypoints', {
+        const HOST = window.location.hostname;
+        fetch(`http://${HOST}:8000/waypoints`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -377,7 +394,7 @@ const Viewer3D = ({ onBack }) => {
             },
             body: JSON.stringify({ name: wpName, x: selectedPoint.x, y: selectedPoint.y, z: selectedPoint.z })
         }).then(res => res.json()).then(data => {
-            setWaypoints(data.waypoints);
+            setWaypoints(data.waypoints || []);
             setWpName("");
             setSelectedPoint(null);
         });
@@ -385,10 +402,11 @@ const Viewer3D = ({ onBack }) => {
 
     const handleDeleteWaypoint = (name) => {
         const token = localStorage.getItem('auth_token');
-        fetch(`http://localhost:8000/waypoints/${name}`, {
+        const HOST = window.location.hostname;
+        fetch(`http://${HOST}:8000/waypoints/${name}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
-        }).then(res => res.json()).then(data => setWaypoints(data.waypoints));
+        }).then(res => res.json()).then(data => setWaypoints(data.waypoints || []));
     }
 
     return (
@@ -454,7 +472,7 @@ const Viewer3D = ({ onBack }) => {
                         {/* Saved Locations */}
                         <SidebarCategory title="Saved Locations" icon={MapPin} defaultOpen={true} theme={theme}>
                             <div className={`border rounded-lg overflow-hidden ${isDark ? 'bg-slate-800/50 border-white/5' : 'bg-white border-slate-200'}`}>
-                                {waypoints.length === 0 ? (
+                                {(!waypoints || waypoints.length === 0) ? (
                                     <div className="p-4 text-center text-xs text-slate-500 font-mono">NO DATA</div>
                                 ) : (
                                     <ul className={`divide-y ${isDark ? 'divide-white/5' : 'divide-slate-100'}`}>
@@ -469,6 +487,22 @@ const Viewer3D = ({ onBack }) => {
                                         ))}
                                     </ul>
                                 )}
+                            </div>
+                        </SidebarCategory>
+
+                        {/* User Settings */}
+                        <SidebarCategory title="User Settings" icon={UserIcon} theme={theme}>
+                            <div className="flex flex-col gap-3">
+                                <div className={`flex justify-between items-center text-xs p-2 rounded ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100 border border-slate-200'}`}>
+                                    <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Logged in as:</span>
+                                    <span className={`font-bold ${isDark ? 'text-blue-400' : 'text-orange-600'}`}>{username || 'User'}</span>
+                                </div>
+                                <button
+                                    onClick={onLogout}
+                                    className="w-full py-2 bg-red-500/90 hover:bg-red-500 text-white text-xs font-bold rounded shadow transition-colors"
+                                >
+                                    LOGOUT
+                                </button>
                             </div>
                         </SidebarCategory>
 
@@ -526,7 +560,7 @@ const Viewer3D = ({ onBack }) => {
 
                     <Canvas camera={{ position: [5, 5, 5], fov: 50 }} dpr={[1, 2]} shadows>
                         <color attach="background" args={[theme.bg]} />
-                        <fog attach="fog" args={[theme.bg, 10, 50]} />
+                        <fog attach="fog" args={[theme.bg, 50, 300]} />
 
                         <ambientLight intensity={0.5} />
                         <spotLight position={[10, 20, 10]} intensity={1} castShadow shadow-mapSize={2048} />
@@ -536,9 +570,9 @@ const Viewer3D = ({ onBack }) => {
                         <axesHelper args={[2]} />
 
                         <group rotation={[-Math.PI / 2, 0, 0]}>
-                            <VoxelCloud url="ws://localhost:8000/ws/points" />
+                            <VoxelCloud url={`ws://${window.location.hostname}:8000/ws/points`} />
                             <DataVisualizer
-                                url="ws://localhost:8000/ws/tf"
+                                url={`ws://${window.location.hostname}:8000/ws/tf`}
                                 onPathUpdate={(path) => setPathLength(calculatePathLength(path))}
                             />
                             {waypoints.map((wp, i) => <WaypointMarker key={i} wp={wp} onClick={handleNavigate} theme={theme} />)}
@@ -552,7 +586,11 @@ const Viewer3D = ({ onBack }) => {
 
                                     {/* Navigation Popup */}
                                     <Html position={[0, 0, 0.5]} center style={{ pointerEvents: 'auto' }}>
-                                        <div className={`w-48 p-2 rounded-lg border shadow-xl backdrop-blur-md animate-in zoom-in-50 duration-200 ${isDark ? 'bg-slate-900/90 border-blue-500/50 text-white' : 'bg-white/90 border-orange-500/50 text-slate-800'}`}>
+                                        <div
+                                            onPointerDown={e => e.stopPropagation()}
+                                            onPointerUp={e => e.stopPropagation()}
+                                            onClick={e => e.stopPropagation()}
+                                            className={`w-48 p-2 rounded-lg border shadow-xl backdrop-blur-md animate-in zoom-in-50 duration-200 ${isDark ? 'bg-slate-900/90 border-blue-500/50 text-white' : 'bg-white/90 border-orange-500/50 text-slate-800'}`}>
                                             <div className="text-[10px] font-mono opacity-50 mb-1 border-b pb-1 border-white/10 uppercase tracking-wider text-center">Location Target</div>
                                             <div className="flex justify-between text-[10px] font-mono mb-2 px-2">
                                                 <span>X: {selectedPoint.x.toFixed(1)}</span>
@@ -568,6 +606,9 @@ const Viewer3D = ({ onBack }) => {
                                                 <input
                                                     value={wpName}
                                                     onChange={e => setWpName(e.target.value)}
+                                                    onPointerDown={e => e.stopPropagation()}
+                                                    onClick={e => e.stopPropagation()}
+                                                    onKeyDown={e => e.stopPropagation()}
                                                     placeholder="Name..."
                                                     className={`flex-1 text-[10px] px-1 rounded border bg-transparent focus:outline-none ${isDark ? 'border-white/20 focus:border-blue-500' : 'border-slate-300 focus:border-orange-500'}`}
                                                 />

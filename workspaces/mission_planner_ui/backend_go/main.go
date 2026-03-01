@@ -1,0 +1,68 @@
+package main
+
+import (
+	"log"
+	"os"
+
+	"mission_planner_backend/api"
+	"mission_planner_backend/database"
+	"mission_planner_backend/mqttclient"
+
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
+)
+
+func main() {
+	if err := godotenv.Load("../backend/.env"); err != nil {
+		log.Println("No .env file found in parent directory, proceeding with environment variables")
+	}
+
+	// Init Singletons
+	dbUrl := os.Getenv("DATABASE_URL")
+	log.Println("Connecting to Database...")
+	database.InitDB(dbUrl)
+	log.Println("Database connection initialized.")
+
+	log.Println("Connecting to MQTT Broker...")
+	mqttclient.InitMQTT()
+	log.Println("MQTT Broker connected.")
+	defer mqttclient.Client.Disconnect(250)
+
+	// Router setup
+	r := gin.Default()
+
+	// CORS: Allow everything for the local command center
+	r.Use(cors.New(cors.Config{
+		AllowAllOrigins:  true,
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+	}))
+
+	// Auth bounds
+	r.POST("/register", api.Register)
+	r.POST("/login", api.Login)
+
+	// WebSockets (Token query param is parsed internally in handler)
+	r.GET("/ws/points", api.WsPoints)
+	r.GET("/ws/tf", api.WsTF)
+	r.GET("/ws/video", api.WsVideo)
+
+	// Protected Routes
+	protected := r.Group("/")
+	protected.Use(api.AuthMiddleware())
+	{
+		protected.POST("/navigate", api.Navigate)
+		protected.GET("/waypoints", api.GetWaypoints)
+		protected.POST("/waypoints", api.SaveWaypoint)
+		protected.DELETE("/waypoints/:name", api.DeleteWaypoint)
+	}
+
+	// Server
+	log.Println("Go Backend Command Center starting on port 8000...")
+	if err := r.Run(":8000"); err != nil {
+		log.Fatalf("Server failed: %v", err)
+	}
+}

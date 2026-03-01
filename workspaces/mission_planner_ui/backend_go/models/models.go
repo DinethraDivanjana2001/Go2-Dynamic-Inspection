@@ -1,0 +1,60 @@
+package models
+
+import (
+	"gorm.io/gorm"
+)
+
+// User represents a user in the database
+type User struct {
+	gorm.Model
+	Username       string `gorm:"uniqueIndex;not null"`
+	HashedPassword string `gorm:"not null"`
+}
+
+// UserCreate is the incoming request payload for registration
+type UserCreate struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
+// GoalRequest represents the incoming navigation payload
+type GoalRequest struct {
+	X float64 `json:"x" binding:"required"`
+	Y float64 `json:"y" binding:"required"`
+	Z float64 `json:"z"`
+}
+
+// Waypoint represents a saved location
+type Waypoint struct {
+	Name string  `json:"name" binding:"required"`
+	X    float64 `json:"x" binding:"required"`
+	Y    float64 `json:"y" binding:"required"`
+	Z    float64 `json:"z" binding:"required"`
+}
+
+// TFAxis defines rotation or translation
+type TFAxis struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	Z float64 `json:"z"`
+	W float64 `json:"w,omitempty"` // Only used for rotation
+}
+
+// TF represents a transform snapshot
+type TF struct {
+	Translation TFAxis `json:"translation"`
+	Rotation    TFAxis `json:"rotation"`
+}
+
+// PathPoint is used for publishing the line strip path
+type PathPoint struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	Z float64 `json:"z"`
+}
+
+// WsTFPayload is the unified payload sent over /ws/tf
+type WsTFPayload struct {
+	TFs  map[string]TF `json:"tfs"`
+	Path []PathPoint   `json:"path"`
+}

@@ -18,7 +18,8 @@ const Login = ({ onLoginSuccess }) => {
             formData.append('username', username);
             formData.append('password', password);
 
-            const response = await axios.post('http://localhost:8000/login', formData, {
+            const HOST = window.location.hostname;
+            const response = await axios.post(`http://${HOST}:8000/login`, formData, {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
             });
 

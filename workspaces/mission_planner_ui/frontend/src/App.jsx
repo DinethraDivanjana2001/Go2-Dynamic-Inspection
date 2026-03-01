@@ -32,18 +32,10 @@ function App() {
 
   return (
     <div className="App w-full h-full relative">
-      {/* Global Logout Button */}
-      <button
-        onClick={handleLogout}
-        className="absolute top-4 left-4 z-[9999] px-3 py-1 bg-red-500/80 hover:bg-red-500 text-white text-xs font-bold rounded shadow-lg backdrop-blur"
-      >
-        LOGOUT
-      </button>
-
       {view === 'landing' ? (
         <LandingPage onOperate={() => setView('viz')} />
       ) : (
-        <Viewer3D onBack={() => setView('landing')} />
+        <Viewer3D onBack={() => setView('landing')} onLogout={handleLogout} />
       )}
     </div>
   );

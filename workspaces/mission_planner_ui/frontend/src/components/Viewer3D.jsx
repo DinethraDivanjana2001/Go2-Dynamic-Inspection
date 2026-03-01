@@ -48,7 +48,9 @@ const VoxelCloud = ({ url }) => {
     const dummy = useMemo(() => new THREE.Object3D(), []);
 
     useEffect(() => {
-        const ws = new WebSocket(url);
+        const token = localStorage.getItem('auth_token');
+        const wsUrl = url + (url.includes('?') ? '&' : '?') + `token=${token}`;
+        const ws = new WebSocket(wsUrl);
         ws.binaryType = "arraybuffer";
         ws.onmessage = (event) => {
             if (event.data instanceof ArrayBuffer && meshRef.current) {
@@ -145,7 +147,9 @@ const DataVisualizer = ({ url, onPathUpdate }) => {
     const [path, setPath] = useState([]);
 
     useEffect(() => {
-        const ws = new WebSocket(url);
+        const token = localStorage.getItem('auth_token');
+        const wsUrl = url + (url.includes('?') ? '&' : '?') + `token=${token}`;
+        const ws = new WebSocket(wsUrl);
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
@@ -213,7 +217,8 @@ const CameraFeed = () => {
     const [imageSrc, setImageSrc] = useState(null);
 
     useEffect(() => {
-        const ws = new WebSocket("ws://localhost:8000/ws/video");
+        const token = localStorage.getItem('auth_token');
+        const ws = new WebSocket(`ws://localhost:8000/ws/video?token=${token}`);
         ws.onmessage = (event) => {
             setImageSrc(`data:image/jpeg;base64,${event.data}`);
         };
@@ -240,15 +245,28 @@ const CameraFeed = () => {
 }
 
 const InteractionPlane = ({ onPointSelected }) => {
+    const pointerDownPos = useRef(null);
+
     return (
         <mesh
             rotation={[-Math.PI / 2, 0, 0]}
             position={[0, 0, 0]}
-            onClick={(e) => {
-                e.stopPropagation();
-                const worldP = e.point;
-                // Transform World -> ROS
-                onPointSelected({ x: worldP.x, y: -worldP.z, z: worldP.y });
+            onPointerDown={(e) => {
+                pointerDownPos.current = { x: e.clientX, y: e.clientY };
+            }}
+            onPointerUp={(e) => {
+                if (!pointerDownPos.current) return;
+                const dist = Math.sqrt(
+                    Math.pow(e.clientX - pointerDownPos.current.x, 2) +
+                    Math.pow(e.clientY - pointerDownPos.current.y, 2)
+                );
+                pointerDownPos.current = null;
+
+                if (dist < 5) {
+                    e.stopPropagation();
+                    const worldP = e.point;
+                    onPointSelected({ x: worldP.x, y: -worldP.z, z: worldP.y });
+                }
             }}
         >
             <planeGeometry args={[100, 100]} />
@@ -297,7 +315,13 @@ const Viewer3D = ({ onBack }) => {
 
     useEffect(() => {
         const fetchWps = () => {
-            fetch('http://localhost:8000/waypoints').then(res => res.json()).then(setWaypoints).catch(e => console.error(e));
+            const token = localStorage.getItem('auth_token');
+            fetch('http://localhost:8000/waypoints', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            }).then(res => {
+                if (res.ok) return res.json();
+                throw new Error("Unauthorized");
+            }).then(setWaypoints).catch(e => console.error(e));
         }
         fetchWps();
         const interval = setInterval(fetchWps, 2000);
@@ -331,18 +355,26 @@ const Viewer3D = ({ onBack }) => {
 
 
     const handleNavigate = (point) => {
+        const token = localStorage.getItem('auth_token');
         fetch('http://localhost:8000/navigate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
             body: JSON.stringify({ x: point.x, y: point.y, z: point.z })
         }).then(() => setSelectedPoint(null));
     };
 
     const handleSaveWaypoint = () => {
         if (!selectedPoint || !wpName) return;
+        const token = localStorage.getItem('auth_token');
         fetch('http://localhost:8000/waypoints', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
             body: JSON.stringify({ name: wpName, x: selectedPoint.x, y: selectedPoint.y, z: selectedPoint.z })
         }).then(res => res.json()).then(data => {
             setWaypoints(data.waypoints);
@@ -352,7 +384,11 @@ const Viewer3D = ({ onBack }) => {
     };
 
     const handleDeleteWaypoint = (name) => {
-        fetch(`http://localhost:8000/waypoints/${name}`, { method: 'DELETE' }).then(res => res.json()).then(data => setWaypoints(data.waypoints));
+        const token = localStorage.getItem('auth_token');
+        fetch(`http://localhost:8000/waypoints/${name}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).then(res => res.json()).then(data => setWaypoints(data.waypoints));
     }
 
     return (

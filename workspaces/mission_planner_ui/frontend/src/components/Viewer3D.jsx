@@ -197,16 +197,25 @@ const DataVisualizer = ({ url, onPathUpdate }) => {
     );
 }
 
-const WaypointMarker = ({ wp, onClick, theme }) => {
+const WaypointMarker = ({ wp, index = 0, isCompleted = false, onClick, theme }) => {
     return (
         <group position={[wp.x, wp.y, wp.z]}>
-            <mesh onClick={(e) => { e.stopPropagation(); onClick(wp); }}>
-                <sphereGeometry args={[0.2]} />
-                <meshStandardMaterial color={theme.accent} emissive={theme.accent} emissiveIntensity={0.5} />
-            </mesh>
-            <Html position={[0, 0, 0.6]} center distanceFactor={12} style={{ pointerEvents: 'none' }}>
-                <div className="bg-blue-600/90 text-white text-base px-4 py-1.5 rounded-full shadow-lg border border-blue-400 backdrop-blur font-bold tracking-wide transform -translate-y-6">
-                    {wp.name}
+            <Html position={[0, 0, 0.4]} center distanceFactor={24} style={{ pointerEvents: 'none' }} className="group">
+                <div
+                    onClick={(e) => { e.stopPropagation(); onClick(wp); }}
+                    className="relative flex flex-col items-center justify-center cursor-pointer transition-transform hover:scale-110 pointer-events-auto"
+                >
+                    {/* Map Pin Head */}
+                    <div className={`min-w-[48px] px-2 h-12 rounded-full shadow-[0_4px_12px_rgba(0,0,0,0.6)] flex items-center justify-center text-white font-bold border-[3px] backdrop-blur-md ${isCompleted ? 'bg-red-500/90 border-red-200' : 'bg-blue-500/90 border-blue-200'} gap-1.5`}>
+                        {isCompleted ? (
+                            <svg className="w-5 h-5 text-white drop-shadow-md shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                        ) : (
+                            <span className="text-xl drop-shadow-md shrink-0">{index + 1}</span>
+                        )}
+                        <span className="text-xs uppercase tracking-wider opacity-90 truncate max-w-[80px] drop-shadow-md whitespace-nowrap">{wp.name}</span>
+                    </div>
+                    {/* Map Pin Tip */}
+                    <div className={`w-0 h-0 border-l-[8px] border-r-[8px] border-t-[12px] border-l-transparent border-r-transparent ${isCompleted ? 'border-t-red-500/90' : 'border-t-blue-500/90'} -mt-0.5 drop-shadow-md`}></div>
                 </div>
             </Html>
         </group>
@@ -332,12 +341,24 @@ const Viewer3D = ({ onBack, onLogout }) => {
         const fetchWps = () => {
             const token = localStorage.getItem('auth_token');
             const HOST = window.location.hostname;
+
+            // Fetch Waypoints
             fetch(`http://${HOST}:8000/waypoints`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             }).then(res => {
                 if (res.ok) return res.json();
                 throw new Error("Unauthorized");
             }).then(data => setWaypoints(data || [])).catch(e => console.error(e));
+
+            // Fetch Profile Picture
+            fetch(`http://${HOST}:8000/profile`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            }).then(res => {
+                if (res.ok) return res.json();
+                return null;
+            }).then(data => {
+                if (data && data.profile_pic) setProfilePic(data.profile_pic);
+            }).catch(e => console.error(e));
         }
         fetchWps();
         const interval = setInterval(fetchWps, 2000);
@@ -650,7 +671,18 @@ const Viewer3D = ({ onBack, onLogout }) => {
                                 url={`ws://${window.location.hostname}:8000/ws/tf`}
                                 onPathUpdate={(path) => setPathLength(calculatePathLength(path))}
                             />
-                            {waypoints.map((wp, i) => <WaypointMarker key={i} wp={wp} onClick={handleNavigate} theme={theme} />)}
+                            {waypoints.map((wp, i) => <WaypointMarker key={i} index={i} isCompleted={i < 2 && waypoints.length > 2} wp={wp} onClick={handleNavigate} theme={theme} />)}
+
+                            {/* Route Line Connecting Waypoints */}
+                            {waypoints.length > 1 && (
+                                <Line
+                                    points={waypoints.map(wp => [wp.x, wp.y, wp.z])}
+                                    color="#ffffff"
+                                    lineWidth={4}
+                                    transparent
+                                    opacity={0.8}
+                                />
+                            )}
 
                             {selectedPoint && (
                                 <group position={[selectedPoint.x, selectedPoint.y, selectedPoint.z]}>

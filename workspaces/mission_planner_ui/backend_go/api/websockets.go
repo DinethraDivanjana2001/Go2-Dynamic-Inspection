@@ -87,8 +87,9 @@ func WsTF(c *gin.Context) {
 		}
 
 		payload := models.WsTFPayload{
-			TFs:  tfs,
-			Path: path,
+			TFs:      tfs,
+			Path:     path,
+			MqttRate: mqttclient.MqttRate,
 		}
 		mqttclient.StateMutex.RUnlock()
 

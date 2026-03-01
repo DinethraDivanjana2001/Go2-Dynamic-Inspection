@@ -118,8 +118,9 @@ func GetProfile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.UserProfile{
-		Username:   user.Username,
-		ProfilePic: user.ProfilePic,
+		Username:    user.Username,
+		DisplayName: user.DisplayName,
+		ProfilePic:  user.ProfilePic,
 	})
 }
 
@@ -139,7 +140,13 @@ func UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	user.ProfilePic = req.ProfilePic
+	if req.ProfilePic != nil {
+		user.ProfilePic = *req.ProfilePic
+	}
+	if req.DisplayName != nil {
+		user.DisplayName = *req.DisplayName
+	}
+
 	if err := database.DB.Save(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
 		return

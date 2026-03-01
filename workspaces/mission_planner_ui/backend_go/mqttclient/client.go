@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"mission_planner_backend/models"
 
@@ -22,6 +23,9 @@ var (
 	TfsMsg     map[string]models.TF
 	PathMsg    []models.PathPoint
 	VideoMsg   string
+
+	MqttCount int
+	MqttRate  float64
 )
 
 // InitMQTT connects to the broker and subscribes
@@ -47,11 +51,24 @@ func InitMQTT() {
 		log.Printf("MQTT Connected to %s:%d", broker, port)
 		topic := baseTopic + "/telemetry/#"
 		token := c.Subscribe(topic, 0, messageHandler)
+
 		go func() {
 			if token.Wait() && token.Error() != nil {
 				log.Printf("Error subscribing to %s: %v", topic, token.Error())
 			} else {
 				log.Printf("Subscribed to %s", topic)
+			}
+		}()
+
+		// Start a background goroutine to calculate the message rate every second
+		go func() {
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				StateMutex.Lock()
+				MqttRate = float64(MqttCount)
+				MqttCount = 0
+				StateMutex.Unlock()
 			}
 		}()
 	}
@@ -70,6 +87,7 @@ func InitMQTT() {
 func messageHandler(client mqtt.Client, msg mqtt.Message) {
 	topic := msg.Topic()
 	StateMutex.Lock()
+	MqttCount++
 	defer StateMutex.Unlock()
 
 	// Topic dispatch

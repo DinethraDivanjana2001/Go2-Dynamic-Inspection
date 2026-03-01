@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Line, Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { ChevronDown, ChevronRight, Video, MapPin, Sliders, Settings, Sun, Moon, Layout, ArrowUp, User as UserIcon } from 'lucide-react';
+import { ChevronDown, ChevronRight, Video, MapPin, Sliders, Settings, Sun, Moon, Layout, ArrowUp, User as UserIcon, Satellite, Flag, CloudSun, Clock, Battery } from 'lucide-react';
 
 // --- Configuration ---
 const VOXEL_SIZE = 0.18;
@@ -42,7 +42,7 @@ function getHeatmapColor(t) {
 
 // --- Components ---
 
-const VoxelCloud = ({ url }) => {
+const VoxelCloud = ({ url, brightness = 1.0 }) => {
     const meshRef = useRef();
     const MAX_INSTANCES = 150000;
     const dummy = useMemo(() => new THREE.Object3D(), []);
@@ -78,10 +78,22 @@ const VoxelCloud = ({ url }) => {
         return () => ws.close();
     }, [url]);
 
+    // Apply brightness (lum) logic directly via the material without waiting for a new socket message
+    // Use a slightly more aggressive curve for opacity to make it more felt
+    const isTransparent = brightness < 1.0;
+    const opacityVal = isTransparent ? Math.pow(brightness, 1.5) : 1.0;
+    const colorMultiplier = Math.max(1.0, brightness);
+
     return (
         <instancedMesh ref={meshRef} args={[null, null, MAX_INSTANCES]}>
             <boxGeometry args={[VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE]} />
-            <meshBasicMaterial toneMapped={false} />
+            <meshBasicMaterial
+                toneMapped={false}
+                transparent={isTransparent}
+                opacity={opacityVal}
+                depthWrite={!isTransparent} // Crucial for seeing through many voxels
+                color={new THREE.Color(colorMultiplier, colorMultiplier, colorMultiplier)}
+            />
         </instancedMesh>
     );
 };
@@ -93,37 +105,49 @@ const RobotDog = ({ color = "#cbd5e1" }) => {
         <group>
             {/* Label */}
             <Html position={[0, 0, 0.8]} center distanceFactor={10} style={{ pointerEvents: 'none' }}>
-                <div className="bg-black/60 text-white text-base font-bold px-4 py-1 rounded-full border border-blue-400/50 whitespace-nowrap font-mono backdrop-blur-md shadow-[0_0_10px_rgba(59,130,246,0.5)]">
+                <div className="bg-black/80 text-white text-base font-bold px-4 py-1 rounded-full border-[2px] border-blue-400 whitespace-nowrap font-mono shadow-[0_0_15px_rgba(59,130,246,0.8)] flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 bg-blue-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,1)]"></div>
                     Robo Dog
                 </div>
             </Html>
 
+            {/* Glowing Ground Ring */}
+            <mesh position={[0, 0, -0.35]}>
+                <ringGeometry args={[0.6, 0.7, 32]} />
+                <meshBasicMaterial color="#3b82f6" transparent opacity={0.6} side={THREE.DoubleSide} />
+            </mesh>
+            <mesh position={[0, 0, -0.35]}>
+                <circleGeometry args={[0.6, 32]} />
+                <meshBasicMaterial color="#3b82f6" transparent opacity={0.15} side={THREE.DoubleSide} />
+            </mesh>
+
             {/* Body */}
             <mesh position={[0, 0, 0]}>
                 <boxGeometry args={[0.6, 0.25, 0.2]} />
-                <meshStandardMaterial color="#f8fafc" /> {/* Slate 50 */}
+                <meshStandardMaterial color="#ffffff" emissive="#3b82f6" emissiveIntensity={0.2} />
             </mesh>
             {/* Head */}
             <mesh position={[0.35, 0, 0.1]}>
                 <boxGeometry args={[0.2, 0.15, 0.15]} />
-                <meshStandardMaterial color="#e2e8f0" /> {/* Slate 200 */}
+                <meshStandardMaterial color="#ffffff" emissive="#3b82f6" emissiveIntensity={0.4} />
             </mesh>
+
             {/* Legs (Front L/R, Back L/R) */}
             <mesh position={[0.25, 0.15, -0.2]}>
                 <boxGeometry args={[0.08, 0.08, 0.4]} />
-                <meshStandardMaterial color="#cbd5e1" /> {/* Slate 300 */}
+                <meshStandardMaterial color="#cbd5e1" emissive="#3b82f6" emissiveIntensity={0.1} />
             </mesh>
             <mesh position={[0.25, -0.15, -0.2]}>
                 <boxGeometry args={[0.08, 0.08, 0.4]} />
-                <meshStandardMaterial color="#cbd5e1" />
+                <meshStandardMaterial color="#cbd5e1" emissive="#3b82f6" emissiveIntensity={0.1} />
             </mesh>
             <mesh position={[-0.25, 0.15, -0.2]}>
                 <boxGeometry args={[0.08, 0.08, 0.4]} />
-                <meshStandardMaterial color="#cbd5e1" />
+                <meshStandardMaterial color="#cbd5e1" emissive="#3b82f6" emissiveIntensity={0.1} />
             </mesh>
             <mesh position={[-0.25, -0.15, -0.2]}>
                 <boxGeometry args={[0.08, 0.08, 0.4]} />
-                <meshStandardMaterial color="#cbd5e1" />
+                <meshStandardMaterial color="#cbd5e1" emissive="#3b82f6" emissiveIntensity={0.1} />
             </mesh>
         </group>
     )
@@ -146,6 +170,10 @@ const DataVisualizer = ({ url, onPathUpdate }) => {
     const [tfs, setTfs] = useState({});
     const [path, setPath] = useState([]);
 
+    // Refs for speed calculation
+    const lastPosRef = useRef(null);
+    const lastTimeRef = useRef(null);
+
     useEffect(() => {
         const token = localStorage.getItem('auth_token');
         const wsUrl = url + (url.includes('?') ? '&' : '?') + `token=${token}`;
@@ -153,6 +181,36 @@ const DataVisualizer = ({ url, onPathUpdate }) => {
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
+
+                // --- Speed Calculation ---
+                if (data.tfs && data.tfs["base_link"]) {
+                    const currentPos = data.tfs["base_link"].translation;
+                    const now = performance.now();
+
+                    if (lastPosRef.current && lastTimeRef.current) {
+                        const dt = (now - lastTimeRef.current) / 1000.0; // seconds
+                        if (dt > 0.05) { // Throttle calculations slightly to avoid noise
+                            const dx = currentPos.x - lastPosRef.current.x;
+                            const dy = currentPos.y - lastPosRef.current.y;
+                            const dz = currentPos.z - lastPosRef.current.z;
+
+                            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                            const speed = dist / dt;
+
+                            // Emit global event with smoothed speed and mqtt rate
+                            window.dispatchEvent(new CustomEvent('dashboardMetricsUpdate', {
+                                detail: { speed, mqttRate: data.mqtt_rate || 0 }
+                            }));
+
+                            lastPosRef.current = currentPos;
+                            lastTimeRef.current = now;
+                        }
+                    } else {
+                        lastPosRef.current = currentPos;
+                        lastTimeRef.current = now;
+                    }
+                }
+
                 if (data.tfs) setTfs(data.tfs);
                 if (data.path) {
                     setPath(data.path);
@@ -310,9 +368,97 @@ const SidebarCategory = ({ title, icon: Icon, children, defaultOpen = false, the
     );
 };
 
+const DashboardMetrics = ({ theme }) => {
+    const [time, setTime] = useState(new Date());
+    const [speed, setSpeed] = useState(0);
+    const [mqttRate, setMqttRate] = useState(0);
+    const [weather, setWeather] = useState({ temp: "--" });
+    const isDark = theme.name.includes('Dark');
+
+    // Clock
+    useEffect(() => {
+        const timer = setInterval(() => setTime(new Date()), 60000); // 1 min update
+        return () => clearInterval(timer);
+    }, []);
+
+    // Weather Fetch (IP based)
+    useEffect(() => {
+        const fetchWeather = async () => {
+            try {
+                // Get approx lat/lon from IP
+                const locRes = await fetch('https://ipapi.co/json/');
+                const locData = await locRes.json();
+
+                if (locData.latitude && locData.longitude) {
+                    // Fetch temp from open-meteo
+                    const wRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${locData.latitude}&longitude=${locData.longitude}&current=temperature_2m&temperature_unit=fahrenheit`);
+                    const wData = await wRes.json();
+
+                    if (wData.current && wData.current.temperature_2m) {
+                        setWeather({ temp: Math.round(wData.current.temperature_2m) });
+                    }
+                }
+            } catch (error) {
+                console.error("Failed to fetch weather", error);
+            }
+        };
+
+        fetchWeather();
+        const weatherTimer = setInterval(fetchWeather, 300000); // Update every 5 mins
+        return () => clearInterval(weatherTimer);
+    }, []);
+
+    // Websocket Telemetry Listener
+    useEffect(() => {
+        const handleUpdate = (e) => {
+            setSpeed(e.detail.speed);
+            setMqttRate(e.detail.mqttRate);
+        };
+
+        window.addEventListener('dashboardMetricsUpdate', handleUpdate);
+        return () => window.removeEventListener('dashboardMetricsUpdate', handleUpdate);
+    }, []);
+
+    const formatTime = (date) => {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+
+    return (
+        <div className={`p-4 border-t flex flex-col gap-4 font-mono ${theme.panelBorder} ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+            <div className="flex items-center gap-4">
+                <Satellite size={20} className={isDark ? "text-slate-400" : "text-slate-500"} />
+                <span className="text-xl font-medium tracking-widest">{mqttRate}</span>
+            </div>
+
+            <div className="flex items-center gap-4">
+                <Flag size={20} className={isDark ? "text-slate-400" : "text-slate-500"} />
+                <div className="flex items-baseline gap-1.5">
+                    <span className="text-xl font-medium tracking-widest">{speed.toFixed(1)}</span>
+                    <span className="text-sm">m/s</span>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+                <CloudSun size={20} className={isDark ? "text-slate-400" : "text-slate-500"} />
+                <span className="text-xl font-medium tracking-widest">{weather.temp}°</span>
+            </div>
+
+            <div className="flex items-center gap-4 pt-2 mt-2 border-t border-dashed border-slate-500/30">
+                <Clock size={16} className={isDark ? "text-slate-500" : "text-slate-400"} />
+                <span className="text-sm font-bold tracking-widest">{formatTime(time)}</span>
+            </div>
+        </div>
+    );
+};
+
+
 const Viewer3D = ({ onBack, onLogout }) => {
     const [selectedPoint, setSelectedPoint] = useState(null);
     const [username, setUsername] = useState("");
+    const [displayName, setDisplayName] = useState("");
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [newName, setNewName] = useState("");
+    const [pointCloudBrightness, setPointCloudBrightness] = useState(1.0);
 
     useEffect(() => {
         const token = localStorage.getItem('auth_token');
@@ -350,20 +496,45 @@ const Viewer3D = ({ onBack, onLogout }) => {
                 throw new Error("Unauthorized");
             }).then(data => setWaypoints(data || [])).catch(e => console.error(e));
 
-            // Fetch Profile Picture
+            // Fetch Profile Picture and DisplayName
             fetch(`http://${HOST}:8000/profile`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             }).then(res => {
                 if (res.ok) return res.json();
                 return null;
             }).then(data => {
-                if (data && data.profile_pic) setProfilePic(data.profile_pic);
+                if (data) {
+                    if (data.profile_pic) setProfilePic(data.profile_pic);
+                    if (data.display_name) setDisplayName(data.display_name);
+                }
             }).catch(e => console.error(e));
         }
         fetchWps();
         const interval = setInterval(fetchWps, 2000);
         return () => clearInterval(interval);
     }, []);
+
+    const handleUpdateName = () => {
+        if (!newName.trim()) {
+            setIsEditingName(false);
+            return;
+        }
+        const token = localStorage.getItem('auth_token');
+        const HOST = window.location.hostname;
+        fetch(`http://${HOST}:8000/profile`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ display_name: newName })
+        }).then(res => {
+            if (res.ok) {
+                setDisplayName(newName);
+            }
+        }).catch(console.error)
+            .finally(() => setIsEditingName(false));
+    };
 
     const toggleTopView = () => {
         if (!controlsRef.current) return;
@@ -471,6 +642,11 @@ const Viewer3D = ({ onBack, onLogout }) => {
                     <div className={`flex items-center gap-4 text-xs font-mono ${isDark ? 'text-blue-300/80' : 'text-slate-500'}`}>
                         <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-green-500 rounded-full shadow-[0_0_5px_lime]"></div> ONLINE</span>
                         <span className="opacity-50">|</span>
+                        <span className="flex items-center gap-1.5">
+                            <Battery size={14} className={isDark ? "text-blue-400" : "text-orange-500"} />
+                            <span className="font-bold">85%</span>
+                        </span>
+                        <span className="opacity-50">|</span>
                         <span>v1.0.0</span>
                     </div>
                 </div>
@@ -479,8 +655,118 @@ const Viewer3D = ({ onBack, onLogout }) => {
             <div className="flex flex-1 overflow-hidden relative">
                 {/* Left Sidebar */}
                 <aside className={`w-80 z-10 flex flex-col shadow-2xl transition-colors duration-300 border-r ${theme.panel} ${theme.panelBorder}`}>
-                    <div className={`p-4 border-b ${theme.panelBorder}`}>
-                        <h2 className={`text-xs font-bold uppercase tracking-[0.2em] ${isDark ? 'text-blue-400' : 'text-orange-600'}`}>Operations</h2>
+
+                    {/* Top User Profile Block */}
+                    <div className={`p-6 border-b relative flex flex-col items-center justify-center ${theme.panelBorder}`}>
+                        <button
+                            className={`absolute top-4 right-4 p-1.5 rounded transition-all ${isDark ? 'text-slate-400 hover:text-white hover:bg-white/10' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}
+                            onClick={() => {
+                                setNewName(displayName || username);
+                                setIsEditingName(!isEditingName);
+                            }}
+                        >
+                            <Settings size={18} />
+                        </button>
+
+                        <div className="relative group cursor-pointer mb-3" onClick={() => document.getElementById('profileUpload').click()}>
+                            <div className={`w-20 h-20 rounded-full overflow-hidden border-2 flex items-center justify-center shrink-0 shadow-lg ${isDark ? 'border-slate-600 bg-slate-800' : 'border-slate-300 bg-slate-200'}`}>
+                                {profilePic ? (
+                                    <img src={profilePic} alt="Profile" className="w-full h-full object-cover" />
+                                ) : (
+                                    <UserIcon size={32} className={isDark ? "text-slate-600" : "text-slate-400"} />
+                                )}
+                            </div>
+                            <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                <span className="text-[10px] font-bold text-white uppercase text-center leading-tight">Change<br />Pic</span>
+                            </div>
+                            <input
+                                type="file"
+                                id="profileUpload"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+
+                                    const reader = new FileReader();
+                                    reader.onload = (event) => {
+                                        const img = new Image();
+                                        img.onload = () => {
+                                            const canvas = document.createElement('canvas');
+                                            const MAX_SIZE = 150;
+                                            let width = img.width;
+                                            let height = img.height;
+
+                                            if (width > height) {
+                                                if (width > MAX_SIZE) {
+                                                    height *= MAX_SIZE / width;
+                                                    width = MAX_SIZE;
+                                                }
+                                            } else {
+                                                if (height > MAX_SIZE) {
+                                                    width *= MAX_SIZE / height;
+                                                    height = MAX_SIZE;
+                                                }
+                                            }
+
+                                            canvas.width = width;
+                                            canvas.height = height;
+                                            const ctx = canvas.getContext('2d');
+                                            ctx.drawImage(img, 0, 0, width, height);
+
+                                            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                                            setProfilePic(dataUrl);
+
+                                            const token = localStorage.getItem('auth_token');
+                                            const HOST = window.location.hostname;
+                                            fetch(`http://${HOST}:8000/profile`, {
+                                                method: 'POST',
+                                                headers: {
+                                                    'Content-Type': 'application/json',
+                                                    'Authorization': `Bearer ${token}`
+                                                },
+                                                body: JSON.stringify({ profile_pic: dataUrl })
+                                            }).catch(console.error);
+                                        };
+                                        img.src = event.target.result;
+                                    };
+                                    reader.readAsDataURL(file);
+                                    e.target.value = null;
+                                }}
+                            />
+                        </div>
+
+                        {isEditingName ? (
+                            <div className="flex flex-col items-center w-full px-4 mb-2">
+                                <input
+                                    type="text"
+                                    value={newName}
+                                    onChange={(e) => setNewName(e.target.value)}
+                                    className={`w-full text-center text-sm font-bold uppercase tracking-wider bg-transparent border-b outline-none pb-1 ${isDark ? 'text-white border-blue-500' : 'text-slate-800 border-orange-500'}`}
+                                    autoFocus
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleUpdateName();
+                                        if (e.key === 'Escape') setIsEditingName(false);
+                                    }}
+                                />
+                                <div className="flex gap-2 mt-2">
+                                    <button onClick={handleUpdateName} className={`text-[10px] px-2 py-1 rounded font-bold text-white ${isDark ? 'bg-blue-600 hover:bg-blue-500' : 'bg-orange-500 hover:bg-orange-400'}`}>SAVE</button>
+                                    <button onClick={() => setIsEditingName(false)} className={`text-[10px] px-2 py-1 rounded font-bold ${isDark ? 'bg-slate-700 hover:bg-slate-600 text-slate-300' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}`}>CANCEL</button>
+                                </div>
+                            </div>
+                        ) : (
+                            <h2 className={`text-sm font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                                {displayName || username || 'GUEST USER'}
+                            </h2>
+                        )}
+
+                        <div className={`flex items-center gap-2 px-3 py-1 rounded-full border ${isDark ? 'bg-black/40 border-white/5' : 'bg-slate-100 border-slate-200'}`}>
+                            <span className={`text-[10px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>CONNECTED</span>
+                            <div className="flex gap-1">
+                                <div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_5px_rgba(59,130,246,0.6)]"></div>
+                                <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.6)]"></div>
+                            </div>
+                        </div>
                     </div>
 
                     <div className="flex-1 overflow-y-auto">
@@ -512,87 +798,9 @@ const Viewer3D = ({ onBack, onLogout }) => {
                             </div>
                         </SidebarCategory>
 
-                        {/* User Settings */}
-                        <SidebarCategory title="User Settings" icon={UserIcon} theme={theme} defaultOpen={true}>
+                        {/* System Control (was User Settings) */}
+                        <SidebarCategory title="System Control" icon={Settings} theme={theme} defaultOpen={true}>
                             <div className="flex flex-col gap-4">
-                                <div className="flex items-center gap-4">
-                                    {/* Profile Picture */}
-                                    <div className="relative group cursor-pointer" onClick={() => document.getElementById('profileUpload').click()}>
-                                        <div className={`w-14 h-14 rounded-full overflow-hidden border-2 flex items-center justify-center shrink-0 ${isDark ? 'border-blue-500 bg-slate-800' : 'border-orange-500 bg-slate-200'}`}>
-                                            {profilePic ? (
-                                                <img src={profilePic} alt="Profile" className="w-full h-full object-cover" />
-                                            ) : (
-                                                <UserIcon size={24} className={isDark ? "text-slate-600" : "text-slate-400"} />
-                                            )}
-                                        </div>
-                                        <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                            <span className="text-[8px] font-bold text-white uppercase text-center leading-tight">Change<br />Pic</span>
-                                        </div>
-                                        <input
-                                            type="file"
-                                            id="profileUpload"
-                                            accept="image/*"
-                                            className="hidden"
-                                            onChange={(e) => {
-                                                const file = e.target.files?.[0];
-                                                if (!file) return;
-
-                                                const reader = new FileReader();
-                                                reader.onload = (event) => {
-                                                    const img = new Image();
-                                                    img.onload = () => {
-                                                        const canvas = document.createElement('canvas');
-                                                        const MAX_SIZE = 150; // Compress down to max 150x150
-                                                        let width = img.width;
-                                                        let height = img.height;
-
-                                                        if (width > height) {
-                                                            if (width > MAX_SIZE) {
-                                                                height *= MAX_SIZE / width;
-                                                                width = MAX_SIZE;
-                                                            }
-                                                        } else {
-                                                            if (height > MAX_SIZE) {
-                                                                width *= MAX_SIZE / height;
-                                                                height = MAX_SIZE;
-                                                            }
-                                                        }
-
-                                                        canvas.width = width;
-                                                        canvas.height = height;
-                                                        const ctx = canvas.getContext('2d');
-                                                        ctx.drawImage(img, 0, 0, width, height);
-
-                                                        // output as low-quality jpeg base64
-                                                        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-                                                        setProfilePic(dataUrl);
-
-                                                        // upload
-                                                        const token = localStorage.getItem('auth_token');
-                                                        const HOST = window.location.hostname;
-                                                        fetch(`http://${HOST}:8000/profile`, {
-                                                            method: 'POST',
-                                                            headers: {
-                                                                'Content-Type': 'application/json',
-                                                                'Authorization': `Bearer ${token}`
-                                                            },
-                                                            body: JSON.stringify({ profile_pic: dataUrl })
-                                                        }).catch(console.error);
-                                                    };
-                                                    img.src = event.target.result;
-                                                };
-                                                reader.readAsDataURL(file);
-                                                e.target.value = null; // reset
-                                            }}
-                                        />
-                                    </div>
-
-                                    <div className="flex flex-col">
-                                        <span className={`text-[10px] uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Logged in as</span>
-                                        <span className={`text-base font-bold ${isDark ? 'text-blue-400' : 'text-orange-600'}`}>{username || 'User'}</span>
-                                    </div>
-                                </div>
-
                                 <button
                                     onClick={onLogout}
                                     className="w-full py-2 bg-red-500/90 hover:bg-red-500 text-white text-xs font-bold rounded shadow transition-colors"
@@ -622,9 +830,7 @@ const Viewer3D = ({ onBack, onLogout }) => {
                     </div>
 
                     {/* Sidebar Footer */}
-                    <div className={`p-4 border-t text-[10px] text-center opacity-40 ${theme.panelBorder} ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                        MISSION PLANNER UI
-                    </div>
+                    <DashboardMetrics theme={theme} />
                 </aside>
 
                 {/* 3D Viewport */}
@@ -635,15 +841,35 @@ const Viewer3D = ({ onBack, onLogout }) => {
                         </div>
                     </div>
 
-                    {/* Top View Toggle */}
-                    <div className="absolute top-4 right-4 z-20 flex flex-col gap-2">
-                        <button
-                            onClick={toggleTopView}
-                            className={`p-2 rounded-lg backdrop-blur-md border shadow-lg transition-all ${isDark ? 'bg-black/40 border-white/10 text-blue-300 hover:bg-black/60 hover:text-white' : 'bg-white/60 border-slate-200 text-slate-600 hover:bg-white hover:text-slate-900'}`}
-                            title="Toggle Top View"
-                        >
-                            <ArrowUp size={20} />
-                        </button>
+                    {/* Top View Toggle & Brightness Control */}
+                    <div className="absolute top-4 right-4 z-20 flex flex-col gap-2 pointer-events-none">
+                        <div className={`p-3 rounded-lg backdrop-blur-md border shadow-lg flex flex-col gap-2 pointer-events-auto ${isDark ? 'bg-black/60 border-white/10' : 'bg-white/80 border-slate-200'}`}>
+
+                            <div className="flex justify-between items-center gap-4">
+                                <span className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Pointcloud Lum</span>
+                                <span className={`font-mono text-[10px] ${isDark ? 'text-blue-400' : 'text-orange-500'}`}>{(pointCloudBrightness * 100).toFixed(0)}%</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="0.1"
+                                max="3.0"
+                                step="0.1"
+                                value={pointCloudBrightness}
+                                onChange={(e) => setPointCloudBrightness(parseFloat(e.target.value))}
+                                className={`w-32 h-1.5 rounded-full appearance-none outline-none cursor-pointer ${isDark ? 'bg-slate-700/50' : 'bg-slate-300'} [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full ${isDark ? '[&::-webkit-slider-thumb]:bg-blue-400' : '[&::-webkit-slider-thumb]:bg-orange-500'}`}
+                            />
+
+                            <div className="w-full h-px bg-slate-500/20 my-1"></div>
+
+                            <button
+                                onClick={toggleTopView}
+                                className={`p-1.5 rounded flex items-center gap-2 justify-center transition-all ${isDark ? 'hover:bg-white/10 text-slate-300 hover:text-white' : 'hover:bg-slate-200 text-slate-600 hover:text-slate-900'}`}
+                                title="Toggle Top View"
+                            >
+                                <ArrowUp size={14} />
+                                <span className="text-[10px] font-bold uppercase tracking-wider">Top View</span>
+                            </button>
+                        </div>
                     </div>
 
                     {/* Camera Feed Overlay - Bottom Right */}
@@ -666,7 +892,7 @@ const Viewer3D = ({ onBack, onLogout }) => {
                         <axesHelper args={[2]} />
 
                         <group rotation={[-Math.PI / 2, 0, 0]}>
-                            <VoxelCloud url={`ws://${window.location.hostname}:8000/ws/points`} />
+                            <VoxelCloud url={`ws://${window.location.hostname}:8000/ws/points`} brightness={pointCloudBrightness} />
                             <DataVisualizer
                                 url={`ws://${window.location.hostname}:8000/ws/tf`}
                                 onPathUpdate={(path) => setPathLength(calculatePathLength(path))}

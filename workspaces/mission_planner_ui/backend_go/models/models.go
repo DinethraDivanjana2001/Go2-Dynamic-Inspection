@@ -8,19 +8,22 @@ import (
 type User struct {
 	gorm.Model
 	Username       string `gorm:"uniqueIndex;not null"`
+	DisplayName    string `gorm:"type:varchar(100)"`
 	HashedPassword string `gorm:"not null"`
 	ProfilePic     string `gorm:"type:text"` // Base64 encoded small image
 }
 
 // UserProfile represents the public-facing user profile
 type UserProfile struct {
-	Username   string `json:"username"`
-	ProfilePic string `json:"profile_pic"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	ProfilePic  string `json:"profile_pic"`
 }
 
 // UserProfileUpdate is the request to update profile details
 type UserProfileUpdate struct {
-	ProfilePic string `json:"profile_pic" binding:"required"`
+	DisplayName *string `json:"display_name,omitempty"`
+	ProfilePic  *string `json:"profile_pic,omitempty"`
 }
 
 // UserCreate is the incoming request payload for registration
@@ -67,6 +70,7 @@ type PathPoint struct {
 
 // WsTFPayload is the unified payload sent over /ws/tf
 type WsTFPayload struct {
-	TFs  map[string]TF `json:"tfs"`
-	Path []PathPoint   `json:"path"`
+	TFs      map[string]TF `json:"tfs"`
+	Path     []PathPoint   `json:"path"`
+	MqttRate float64       `json:"mqtt_rate"`
 }

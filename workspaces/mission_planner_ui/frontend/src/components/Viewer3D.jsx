@@ -12,14 +12,14 @@ const MAX_Z = 2.0;
 // --- Themes ---
 const THEMES = {
     dark: {
-        name: 'Dark Blue',
-        bg: '#0f172a', // Slate 900
-        grid: '#334155', // Slate 700
-        accent: '#3b82f6', // Blue 500
-        text: '#ffffff',
-        panel: 'bg-slate-900',
+        name: 'Dark Studio',
+        bg: '#09090b', // Zinc 950
+        grid: '#27272a', // Zinc 800
+        accent: '#e4e4e7', // Zinc 200 (Subtle stark white)
+        text: '#f4f4f5', // Zinc 100
+        panel: 'bg-zinc-950',
         panelBorder: 'border-white/5',
-        header: 'bg-slate-900 border-blue-900/50',
+        header: 'bg-zinc-950 border-white/5',
     },
     light: {
         name: 'Light Orange',
@@ -28,7 +28,7 @@ const THEMES = {
         accent: '#f97316', // Orange 500
         text: '#1e293b', // Slate 800
         panel: 'bg-white',
-        panelBorder: 'border-slate-200',
+        panelBorder: 'border-zinc-200',
         header: 'bg-white border-orange-200',
     }
 };
@@ -105,8 +105,8 @@ const RobotDog = ({ color = "#cbd5e1" }) => {
         <group>
             {/* Label */}
             <Html position={[0, 0, 0.8]} center distanceFactor={10} style={{ pointerEvents: 'none' }}>
-                <div className="bg-black/80 text-white text-base font-bold px-4 py-1 rounded-full border-[2px] border-blue-400 whitespace-nowrap font-mono shadow-[0_0_15px_rgba(59,130,246,0.8)] flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 bg-blue-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,1)]"></div>
+                <div className="bg-black/80 text-white text-base font-bold px-4 py-1 rounded-full border-[2px] border-zinc-500 whitespace-nowrap font-mono shadow-[0_0_15px_rgba(255,255,255,0.2)] flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 bg-zinc-300 rounded-full animate-pulse shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>
                     Unitree Go2
                 </div>
             </Html>
@@ -114,40 +114,40 @@ const RobotDog = ({ color = "#cbd5e1" }) => {
             {/* Glowing Ground Ring */}
             <mesh position={[0, 0, -0.35]}>
                 <ringGeometry args={[0.6, 0.7, 32]} />
-                <meshBasicMaterial color="#3b82f6" transparent opacity={0.6} side={THREE.DoubleSide} />
+                <meshBasicMaterial color="#71717a" transparent opacity={0.6} side={THREE.DoubleSide} />
             </mesh>
             <mesh position={[0, 0, -0.35]}>
                 <circleGeometry args={[0.6, 32]} />
-                <meshBasicMaterial color="#3b82f6" transparent opacity={0.15} side={THREE.DoubleSide} />
+                <meshBasicMaterial color="#a1a1aa" transparent opacity={0.15} side={THREE.DoubleSide} />
             </mesh>
 
             {/* Body */}
             <mesh position={[0, 0, 0]}>
                 <boxGeometry args={[0.6, 0.25, 0.2]} />
-                <meshStandardMaterial color="#ffffff" emissive="#3b82f6" emissiveIntensity={0.2} />
+                <meshStandardMaterial color="#ffffff" emissive="#52525b" emissiveIntensity={0.2} />
             </mesh>
             {/* Head */}
             <mesh position={[0.35, 0, 0.1]}>
                 <boxGeometry args={[0.2, 0.15, 0.15]} />
-                <meshStandardMaterial color="#ffffff" emissive="#3b82f6" emissiveIntensity={0.4} />
+                <meshStandardMaterial color="#ffffff" emissive="#52525b" emissiveIntensity={0.4} />
             </mesh>
 
             {/* Legs (Front L/R, Back L/R) */}
             <mesh position={[0.25, 0.15, -0.2]}>
                 <boxGeometry args={[0.08, 0.08, 0.4]} />
-                <meshStandardMaterial color="#cbd5e1" emissive="#3b82f6" emissiveIntensity={0.1} />
+                <meshStandardMaterial color="#e4e4e7" emissive="#71717a" emissiveIntensity={0.1} />
             </mesh>
             <mesh position={[0.25, -0.15, -0.2]}>
                 <boxGeometry args={[0.08, 0.08, 0.4]} />
-                <meshStandardMaterial color="#cbd5e1" emissive="#3b82f6" emissiveIntensity={0.1} />
+                <meshStandardMaterial color="#e4e4e7" emissive="#71717a" emissiveIntensity={0.1} />
             </mesh>
             <mesh position={[-0.25, 0.15, -0.2]}>
                 <boxGeometry args={[0.08, 0.08, 0.4]} />
-                <meshStandardMaterial color="#cbd5e1" emissive="#3b82f6" emissiveIntensity={0.1} />
+                <meshStandardMaterial color="#e4e4e7" emissive="#71717a" emissiveIntensity={0.1} />
             </mesh>
             <mesh position={[-0.25, -0.15, -0.2]}>
                 <boxGeometry args={[0.08, 0.08, 0.4]} />
-                <meshStandardMaterial color="#cbd5e1" emissive="#3b82f6" emissiveIntensity={0.1} />
+                <meshStandardMaterial color="#e4e4e7" emissive="#71717a" emissiveIntensity={0.1} />
             </mesh>
         </group>
     )
@@ -202,13 +202,21 @@ const DataVisualizer = ({ url, onPathUpdate }) => {
                                 detail: { speed, mqttRate: data.mqtt_rate || 0 }
                             }));
 
-                            lastPosRef.current = currentPos;
                             lastTimeRef.current = now;
                         }
                     } else {
                         lastPosRef.current = currentPos;
                         lastTimeRef.current = now;
                     }
+
+                    // Broadcast Telemetry for Mini-Map (High Frequency)
+                    window.dispatchEvent(new CustomEvent('robotTelemetry', {
+                        detail: {
+                            pos: data.tfs["base_link"].translation,
+                            rot: data.tfs["base_link"].rotation,
+                            path: data.path || []
+                        }
+                    }));
                 }
 
                 if (data.tfs) setTfs(data.tfs);
@@ -264,21 +272,180 @@ const WaypointMarker = ({ wp, index = 0, isCompleted = false, onClick, theme }) 
                     className="relative flex flex-col items-center justify-center cursor-pointer transition-transform hover:scale-110 pointer-events-auto"
                 >
                     {/* Map Pin Head */}
-                    <div className={`min-w-[48px] px-2 h-12 rounded-full shadow-[0_4px_12px_rgba(0,0,0,0.6)] flex items-center justify-center text-white font-bold border-[3px] backdrop-blur-md ${isCompleted ? 'bg-red-500/90 border-red-200' : 'bg-blue-500/90 border-blue-200'} gap-1.5`}>
-                        {isCompleted ? (
+                    <div className={`min-w-[48px] px-2 h-12 rounded-full shadow-[0_4px_12px_rgba(0,0,0,0.6)] flex items-center justify-center text-white font-bold border-[3px] backdrop-blur-md ${isCompleted ? 'bg-zinc-800/90 border-white/20' : 'bg-transparent border-white/50 bg-gradient-to-tr from-white/10 to-transparent'} gap-1.5`}>
+                        {isCompleted && (
                             <svg className="w-5 h-5 text-white drop-shadow-md shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-                        ) : (
-                            <span className="text-xl drop-shadow-md shrink-0">{index + 1}</span>
                         )}
                         <span className="text-xs uppercase tracking-wider opacity-90 truncate max-w-[80px] drop-shadow-md whitespace-nowrap">{wp.name}</span>
                     </div>
                     {/* Map Pin Tip */}
-                    <div className={`w-0 h-0 border-l-[8px] border-r-[8px] border-t-[12px] border-l-transparent border-r-transparent ${isCompleted ? 'border-t-red-500/90' : 'border-t-blue-500/90'} -mt-0.5 drop-shadow-md`}></div>
+                    <div className={`w-0 h-0 border-l-[8px] border-r-[8px] border-t-[12px] border-l-transparent border-r-transparent ${isCompleted ? 'border-t-zinc-800/90' : 'border-t-white/50'} -mt-0.5 drop-shadow-md`}></div>
                 </div>
             </Html>
         </group>
     )
 }
+
+const MiniMap = ({ waypoints = [], theme }) => {
+    const [telemetry, setTelemetry] = useState({ pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, path: [] });
+    const isDark = theme.name.includes('Dark');
+
+    useEffect(() => {
+        const handleTelemetery = (e) => setTelemetry(e.detail);
+        window.addEventListener('robotTelemetry', handleTelemetery);
+        return () => window.removeEventListener('robotTelemetry', handleTelemetery);
+    }, []);
+
+    // Map configuration
+    const mapSize = 180;
+    const scale = 20; // Pixels per meter
+    const center = mapSize / 2;
+
+    // Robot properties
+    const rx = telemetry.pos.x;
+    const ry = telemetry.pos.y; // Using Y as Z for top-down
+
+    const toMapCoords = (x, y) => ({
+        x: center + (x - rx) * scale,
+        y: center - (y - ry) * scale
+    });
+
+    const robotPos = { x: center, y: center };
+
+    // Calculate rotation angle from quaternion (around Z axis for top-down)
+    const q = telemetry.rot;
+    const angle = Math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)) * (180 / Math.PI);
+
+    return (
+        <div className={`relative w-[${mapSize}px] h-[${mapSize}px] rounded-lg border backdrop-blur-md overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-700 ${isDark ? 'bg-black/40 border-white/10' : 'bg-white/60 border-zinc-200'}`} style={{ width: mapSize, height: mapSize }}>
+            {/* Grid Pattern (Moves with robot) */}
+            <div
+                className="absolute inset-[-100px] opacity-20 pointer-events-none transition-transform duration-100 ease-linear"
+                style={{
+                    backgroundImage: `radial-gradient(${isDark ? '#e4e4e7' : '#f97316'} 1px, transparent 1px)`,
+                    backgroundSize: '20px 20px',
+                    transform: `translate(${-(rx * scale) % 20}px, ${(ry * scale) % 20}px)`
+                }}
+            ></div>
+
+            <svg viewBox={`0 0 ${mapSize} ${mapSize}`} className="absolute inset-0 w-full h-full drop-shadow-[0_0_8px_rgba(255,255,255,0.1)]">
+                {/* Crosshair / Fixed references */}
+                <line x1={center} y1="0" x2={center} y2={mapSize} stroke={isDark ? "white" : "black"} strokeWidth="0.5" strokeOpacity="0.1" />
+                <line x1="0" y1={center} x2={mapSize} y2={center} stroke={isDark ? "white" : "black"} strokeWidth="0.5" strokeOpacity="0.1" />
+
+                {/* Path (Relative to robot) */}
+                {telemetry.path.length > 1 && (
+                    <polyline
+                        points={telemetry.path.map(p => {
+                            const coords = toMapCoords(p.x, p.y);
+                            return `${coords.x},${coords.y}`;
+                        }).join(' ')}
+                        fill="none"
+                        stroke={isDark ? "#e4e4e7" : "#f97316"}
+                        strokeWidth="1.5"
+                        strokeOpacity="0.6"
+                        strokeDasharray="4 2"
+                    />
+                )}
+
+                {/* Waypoints (Relative to robot) */}
+                {waypoints.map((wp, i) => {
+                    const coords = toMapCoords(wp.x, wp.y);
+                    return (
+                        <g key={i}>
+                            <circle cx={coords.x} cy={coords.y} r="3" fill={isDark ? "#e4e4e7" : "#f97316"} className="animate-pulse" />
+                            <text x={coords.x + 5} y={coords.y + 3} className={`text-[8px] font-bold uppercase tracking-tighter ${isDark ? 'fill-zinc-400' : 'fill-orange-600'}`}>{wp.name}</text>
+                        </g>
+                    );
+                })}
+
+                {/* Robot Marker (Fixed at Center) */}
+                <g transform={`translate(${robotPos.x}, ${robotPos.y}) rotate(${-angle + 90})`}>
+                    {/* View Cone */}
+                    <path d="M -15 -25 L 0 0 L 15 -25 Q 0 -30 -15 -25" fill={isDark ? "rgba(228,228,231,0.1)" : "rgba(249,115,22,0.15)"} />
+                    {/* Robot Body */}
+                    <rect x="-4" y="-6" width="8" height="12" rx="2" fill={isDark ? "#e4e4e7" : "#f97316"} />
+                    <rect x="-2" y="-8" width="4" height="4" rx="1" fill={isDark ? "#000" : "#fff"} />
+                    {/* Pulsing indicator */}
+                    <circle r="6" fill="none" stroke={isDark ? "#e4e4e7" : "#f97316"} strokeWidth="1">
+                        <animate attributeName="r" from="6" to="12" dur="1.5s" repeatCount="indefinite" />
+                        <animate attributeName="opacity" from="1" to="0" dur="1.5s" repeatCount="indefinite" />
+                    </circle>
+                </g>
+            </svg>
+
+            {/* Compass Indicator */}
+            <div className={`absolute top-2 right-2 w-6 h-6 rounded-full border flex items-center justify-center text-[10px] font-bold ${isDark ? 'bg-zinc-950/80 border-white/10 text-zinc-300' : 'bg-white/60 border-zinc-200 text-orange-500'}`}>
+                N
+            </div>
+
+            {/* HUD Labels */}
+            <div className={`absolute top-1 left-2 text-[8px] font-black uppercase tracking-widest ${isDark ? 'text-zinc-400/80' : 'text-orange-500/60'}`}>
+                Robot Ctr :: Tactical
+            </div>
+            <div className={`absolute bottom-1 right-2 text-[8px] font-mono ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                Z: {telemetry.pos.z.toFixed(2)}m
+            </div>
+        </div>
+    );
+};
+
+const TVStatic = ({ width = "100%", height = "100%" }) => {
+    const canvasRef = useRef(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        let animationFrameId;
+
+        const resize = () => {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+        };
+        window.addEventListener('resize', resize);
+        resize();
+
+        const render = () => {
+            const imageData = ctx.createImageData(canvas.width, canvas.height);
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                const val = Math.random() * 255;
+                data[i] = val;     // R
+                data[i + 1] = val; // G
+                data[i + 2] = val; // B
+                data[i + 3] = 255; // A
+            }
+            ctx.putImageData(imageData, 0, 0);
+            animationFrameId = requestAnimationFrame(render);
+        };
+
+        render();
+
+        return () => {
+            cancelAnimationFrame(animationFrameId);
+            window.removeEventListener('resize', resize);
+        };
+    }, []);
+
+    return (
+        <div className="relative w-full h-full overflow-hidden bg-zinc-900">
+            <canvas ref={canvasRef} className="w-full h-full opacity-40 mix-blend-screen" />
+            <div className="absolute inset-0 bg-neutral-900/20 pointer-events-none"></div>
+            {/* Scanlines Effect */}
+            <div className="absolute inset-0 pointer-events-none opacity-20"
+                style={{ backgroundImage: 'linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06))', backgroundSize: '100% 4px, 3px 100%' }}>
+            </div>
+            {/* NO SIGNAL Text Overlay */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                <div className="px-3 py-1 bg-black/60 backdrop-blur-md border border-white/10 rounded flex items-center gap-3">
+                    <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse shadow-[0_0_8px_rgba(220,38,38,0.8)]"></div>
+                    <span className="text-[10px] font-black tracking-[0.3em] text-white uppercase font-mono">No Signal</span>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const CameraFeed = () => {
     const [imageSrc, setImageSrc] = useState(null);
@@ -294,18 +461,18 @@ const CameraFeed = () => {
     }, []);
 
     if (!imageSrc) return (
-        <div className="w-64 h-48 bg-black/80 flex items-center justify-center text-slate-500 text-xs font-mono border border-slate-700 rounded-lg backdrop-blur-sm">
-            NO CAMERA FEED
+        <div className="w-64 h-48 md:w-80 md:h-56 bg-black/80 flex items-center justify-center border border-zinc-800 rounded-lg overflow-hidden relative shadow-2xl transition-all duration-300 hover:scale-105">
+            <TVStatic />
         </div>
     );
 
     return (
-        <div className="relative border border-blue-500/50 rounded-lg overflow-hidden shadow-2xl bg-black w-64 md:w-80 transition-all duration-300 hover:scale-105">
+        <div className="relative border border-zinc-500/50 rounded-lg overflow-hidden shadow-2xl bg-black w-64 md:w-80 transition-all duration-300 hover:scale-105">
             <img src={imageSrc} alt="Robot Camera" className="w-full h-auto object-cover" />
             <div className="absolute top-2 right-2 flex gap-1">
                 <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_red]"></div>
             </div>
-            <div className="absolute bottom-2 left-2 text-[10px] text-blue-200 bg-black/60 px-2 py-0.5 rounded font-mono backdrop-blur-sm border border-white/10">
+            <div className={`absolute bottom-2 left-2 text-[10px] bg-zinc-950/80 px-2 py-0.5 rounded font-mono backdrop-blur-sm border border-white/10 ${isDark ? 'text-zinc-300' : 'text-blue-600'}`}>
                 CAM_01 :: RAW
             </div>
         </div>
@@ -348,14 +515,14 @@ const SidebarCategory = ({ title, icon: Icon, children, defaultOpen = false, the
     const isDark = theme.name.includes('Dark');
 
     return (
-        <div className={`border-b ${isDark ? 'border-white/5' : 'border-slate-200'}`}>
+        <div className={`border-b ${isDark ? 'border-white/5' : 'border-zinc-200'}`}>
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className={`w-full flex items-center justify-between p-4 hover:${isDark ? 'bg-white/5' : 'bg-slate-50'} transition-colors`}
+                className={`w-full flex items-center justify-between p-4 hover:${isDark ? 'bg-white/5' : 'bg-zinc-50'} transition-colors`}
             >
                 <div className="flex items-center gap-3">
-                    {Icon && <Icon size={16} className={isDark ? "text-blue-400" : "text-orange-500"} />}
-                    <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{title}</span>
+                    {Icon && <Icon size={16} className={isDark ? "text-zinc-400" : "text-orange-500"} />}
+                    <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-zinc-300' : 'text-zinc-800'}`}>{title}</span>
                 </div>
                 {isOpen ? <ChevronDown size={14} className="opacity-50" /> : <ChevronRight size={14} className="opacity-50" />}
             </button>
@@ -424,14 +591,14 @@ const DashboardMetrics = ({ theme }) => {
     };
 
     return (
-        <div className={`p-4 border-t flex flex-col gap-4 font-mono ${theme.panelBorder} ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+        <div className={`p-4 border-t flex flex-col gap-4 font-mono ${theme.panelBorder} ${isDark ? 'text-zinc-300' : 'text-zinc-600'}`}>
             <div className="flex items-center gap-4">
-                <Satellite size={20} className={isDark ? "text-slate-400" : "text-slate-500"} />
+                <Satellite size={20} className={isDark ? "text-zinc-400" : "text-zinc-500"} />
                 <span className="text-xl font-medium tracking-widest">{mqttRate}</span>
             </div>
 
             <div className="flex items-center gap-4">
-                <Flag size={20} className={isDark ? "text-slate-400" : "text-slate-500"} />
+                <Flag size={20} className={isDark ? "text-zinc-400" : "text-zinc-500"} />
                 <div className="flex items-baseline gap-1.5">
                     <span className="text-xl font-medium tracking-widest">{speed.toFixed(1)}</span>
                     <span className="text-sm">m/s</span>
@@ -439,12 +606,12 @@ const DashboardMetrics = ({ theme }) => {
             </div>
 
             <div className="flex items-center gap-4">
-                <CloudSun size={20} className={isDark ? "text-slate-400" : "text-slate-500"} />
+                <CloudSun size={20} className={isDark ? "text-zinc-400" : "text-zinc-500"} />
                 <span className="text-xl font-medium tracking-widest">{weather.temp}°</span>
             </div>
 
-            <div className="flex items-center gap-4 pt-2 mt-2 border-t border-dashed border-slate-500/30">
-                <Clock size={16} className={isDark ? "text-slate-500" : "text-slate-400"} />
+            <div className="flex items-center gap-4 pt-2 mt-2 border-t border-dashed border-zinc-500/30">
+                <Clock size={16} className={isDark ? "text-zinc-500" : "text-zinc-400"} />
                 <span className="text-sm font-bold tracking-widest">{formatTime(time)}</span>
             </div>
         </div>
@@ -453,13 +620,13 @@ const DashboardMetrics = ({ theme }) => {
 
 const RobotStatusWidget = ({ isDark }) => {
     return (
-        <div className={`p-4 rounded-xl backdrop-blur-xl border shadow-2xl flex flex-col gap-3 w-full animate-in slide-in-from-right-10 duration-500 ${isDark ? 'bg-slate-900/80 border-white/10' : 'bg-white/90 border-slate-200'}`}>
+        <div className={`p-4 rounded-xl backdrop-blur-xl border shadow-2xl flex flex-col gap-3 w-full animate-in slide-in-from-right-10 duration-500 ${isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white/90 border-zinc-200'}`}>
             <div className="flex items-center justify-between border-b border-white/5 pb-2">
                 <div className="flex flex-col">
-                    <span className={`text-[10px] uppercase tracking-[0.2em] font-black ${isDark ? 'text-blue-400' : 'text-orange-500'}`}>Robot Model</span>
-                    <span className={`text-sm font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-800'}`}>Unitree Go2</span>
+                    <span className={`text-[10px] uppercase tracking-[0.2em] font-black ${isDark ? 'text-zinc-400' : 'text-orange-500'}`}>Robot Model</span>
+                    <span className={`text-sm font-bold tracking-tight ${isDark ? 'text-white' : 'text-zinc-800'}`}>Unitree Go2</span>
                 </div>
-                <div className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${isDark ? 'bg-blue-500/20 text-blue-400' : 'bg-orange-500/20 text-orange-600'}`}>
+                <div className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${isDark ? 'bg-zinc-500/20 text-zinc-400' : 'bg-orange-500/20 text-orange-600'}`}>
                     Active
                 </div>
             </div>
@@ -477,19 +644,19 @@ const RobotStatusWidget = ({ isDark }) => {
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-                <div className={`p-2 rounded-lg border ${isDark ? 'bg-black/20 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
+                <div className={`p-2 rounded-lg border ${isDark ? 'bg-black/20 border-white/5' : 'bg-zinc-50 border-zinc-100'}`}>
                     <div className="flex items-center gap-1.5 mb-1">
                         <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-                        <span className="text-[9px] font-bold uppercase text-slate-500">Health</span>
+                        <span className="text-[9px] font-bold uppercase text-zinc-500">Health</span>
                     </div>
                     <span className={`text-xs font-bold ${isDark ? 'text-green-400' : 'text-green-600'}`}>NORMAL</span>
                 </div>
-                <div className={`p-2 rounded-lg border ${isDark ? 'bg-black/20 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
+                <div className={`p-2 rounded-lg border ${isDark ? 'bg-black/20 border-white/5' : 'bg-zinc-50 border-zinc-100'}`}>
                     <div className="flex items-center gap-1.5 mb-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
-                        <span className="text-[9px] font-bold uppercase text-slate-500">Temp</span>
+                        <div className={`w-1.5 h-1.5 rounded-full ${isDark ? 'bg-zinc-500 shadow-[0_0_5px_white]' : 'bg-blue-400'}`}></div>
+                        <span className="text-[9px] font-bold uppercase text-zinc-500">Temp</span>
                     </div>
-                    <span className={`text-xs font-bold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>NORMAL</span>
+                    <span className={`text-xs font-bold ${isDark ? 'text-zinc-400' : 'text-blue-600'}`}>NORMAL</span>
                 </div>
             </div>
         </div>
@@ -649,23 +816,23 @@ const Viewer3D = ({ onBack, onLogout }) => {
     }
 
     return (
-        <div className={`w-full h-screen flex flex-col font-sans overflow-hidden transition-colors duration-300 ${isDark ? 'text-slate-100 bg-slate-900' : 'text-slate-800 bg-slate-50'}`}>
+        <div className={`w-full h-screen flex flex-col font-sans overflow-hidden transition-colors duration-300 ${isDark ? 'text-zinc-100 bg-zinc-950' : 'text-zinc-800 bg-zinc-50'}`}>
             {/* Header */}
             <header className={`${theme.header} h-14 flex items-center justify-between px-6 shadow-xl z-20 shrink-0 border-b transition-colors duration-300`}>
                 <div className="flex items-center gap-4">
-                    <button onClick={onBack} className={`p-1 transition-colors ${isDark ? 'hover:text-blue-400' : 'hover:text-orange-500'}`}>
+                    <button onClick={onBack} className={`p-1 transition-colors ${isDark ? 'hover:text-zinc-400' : 'hover:text-orange-500'}`}>
                         <Layout size={20} />
                     </button>
-                    <div className={`text-xl font-bold tracking-wider flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-800'}`}>
-                        <div className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-black shadow-[0_0_10px_rgba(59,130,246,0.6)] ${isDark ? 'bg-gradient-to-tr from-blue-600 to-cyan-400 text-white' : 'bg-gradient-to-tr from-orange-500 to-amber-400 text-white'}`}>G2</div>
-                        Go2 <span className={`font-thin ${isDark ? 'text-blue-500' : 'text-orange-500'}`}>Planner Suite</span>
+                    <div className={`text-xl font-bold tracking-wider flex items-center gap-2 ${isDark ? 'text-white' : 'text-zinc-800'}`}>
+                        <div className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-black shadow-[0_0_10px_rgba(255,255,255,0.2)] ${isDark ? 'bg-gradient-to-tr from-zinc-700 to-zinc-500 text-white' : 'bg-gradient-to-tr from-orange-500 to-amber-400 text-white'}`}>G2</div>
+                        Go2 <span className={`font-thin ${isDark ? 'text-zinc-400' : 'text-orange-500'}`}>Planner Suite</span>
                     </div>
                 </div>
 
-                <div className={`hidden md:flex items-center gap-4 text-xs font-mono border-x px-6 ${isDark ? 'border-white/10 text-slate-400' : 'border-slate-200 text-slate-500'}`}>
+                <div className={`hidden md:flex items-center gap-4 text-xs font-mono border-x px-6 ${isDark ? 'border-white/10 text-zinc-400' : 'border-zinc-200 text-zinc-500'}`}>
                     <div className="flex flex-col items-center">
                         <span className="text-[10px] uppercase tracking-wider opacity-60">Path Distance</span>
-                        <span className={`text-lg font-bold ${isDark ? 'text-blue-400' : 'text-orange-500'}`}>{pathLength.toFixed(2)}m</span>
+                        <span className={`text-lg font-bold ${isDark ? 'text-zinc-400' : 'text-orange-500'}`}>{pathLength.toFixed(2)}m</span>
                     </div>
                 </div>
 
@@ -673,23 +840,23 @@ const Viewer3D = ({ onBack, onLogout }) => {
                     <div className="flex items-center gap-2 bg-black/10 p-1 rounded-full border border-white/5">
                         <button
                             onClick={() => setCurrentTheme('dark')}
-                            className={`p-1.5 rounded-full transition-all ${currentTheme === 'dark' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}
+                            className={`p-1.5 rounded-full transition-all ${currentTheme === 'dark' ? 'bg-zinc-700 text-white shadow-lg' : 'text-zinc-400 hover:text-zinc-200'}`}
                         >
                             <Moon size={14} />
                         </button>
                         <button
                             onClick={() => setCurrentTheme('light')}
-                            className={`p-1.5 rounded-full transition-all ${currentTheme === 'light' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+                            className={`p-1.5 rounded-full transition-all ${currentTheme === 'light' ? 'bg-orange-500 text-white shadow-lg' : 'text-zinc-400 hover:text-zinc-600'}`}
                         >
                             <Sun size={14} />
                         </button>
                     </div>
 
-                    <div className={`flex items-center gap-4 text-xs font-mono ${isDark ? 'text-blue-300/80' : 'text-slate-500'}`}>
+                    <div className={`flex items-center gap-4 text-xs font-mono ${isDark ? 'text-zinc-300/80' : 'text-zinc-500'}`}>
                         <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-green-500 rounded-full shadow-[0_0_5px_lime]"></div> ONLINE</span>
                         <span className="opacity-50">|</span>
                         <span className="flex items-center gap-1.5">
-                            <Battery size={14} className={isDark ? "text-blue-400" : "text-orange-500"} />
+                            <Battery size={14} className={isDark ? "text-zinc-400" : "text-orange-500"} />
                             <span className="font-bold">85%</span>
                         </span>
                         <span className="opacity-50">|</span>
@@ -705,7 +872,7 @@ const Viewer3D = ({ onBack, onLogout }) => {
                     {/* Top User Profile Block */}
                     <div className={`p-6 border-b relative flex flex-col items-center justify-center ${theme.panelBorder}`}>
                         <button
-                            className={`absolute top-4 right-4 p-1.5 rounded transition-all ${isDark ? 'text-slate-400 hover:text-white hover:bg-white/10' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}
+                            className={`absolute top-4 right-4 p-1.5 rounded transition-all ${isDark ? 'text-zinc-400 hover:text-white hover:bg-white/10' : 'text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100'}`}
                             onClick={() => {
                                 setNewName(displayName || username);
                                 setIsEditingName(!isEditingName);
@@ -715,11 +882,11 @@ const Viewer3D = ({ onBack, onLogout }) => {
                         </button>
 
                         <div className="relative group cursor-pointer mb-3" onClick={() => document.getElementById('profileUpload').click()}>
-                            <div className={`w-20 h-20 rounded-full overflow-hidden border-2 flex items-center justify-center shrink-0 shadow-lg ${isDark ? 'border-slate-600 bg-slate-800' : 'border-slate-300 bg-slate-200'}`}>
+                            <div className={`w-20 h-20 rounded-full overflow-hidden border-2 flex items-center justify-center shrink-0 shadow-lg ${isDark ? 'border-zinc-600 bg-zinc-800' : 'border-zinc-300 bg-zinc-200'}`}>
                                 {profilePic ? (
                                     <img src={profilePic} alt="Profile" className="w-full h-full object-cover" />
                                 ) : (
-                                    <UserIcon size={32} className={isDark ? "text-slate-600" : "text-slate-400"} />
+                                    <UserIcon size={32} className={isDark ? "text-zinc-600" : "text-zinc-400"} />
                                 )}
                             </div>
                             <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
@@ -788,7 +955,7 @@ const Viewer3D = ({ onBack, onLogout }) => {
                                     type="text"
                                     value={newName}
                                     onChange={(e) => setNewName(e.target.value)}
-                                    className={`w-full text-center text-sm font-bold uppercase tracking-wider bg-transparent border-b outline-none pb-1 ${isDark ? 'text-white border-blue-500' : 'text-slate-800 border-orange-500'}`}
+                                    className={`w-full text-center text-sm font-bold uppercase tracking-wider bg-transparent border-b outline-none pb-1 ${isDark ? 'text-white border-zinc-500' : 'text-zinc-800 border-orange-500'}`}
                                     autoFocus
                                     onKeyDown={(e) => {
                                         if (e.key === 'Enter') handleUpdateName();
@@ -796,20 +963,20 @@ const Viewer3D = ({ onBack, onLogout }) => {
                                     }}
                                 />
                                 <div className="flex gap-2 mt-2">
-                                    <button onClick={handleUpdateName} className={`text-[10px] px-2 py-1 rounded font-bold text-white ${isDark ? 'bg-blue-600 hover:bg-blue-500' : 'bg-orange-500 hover:bg-orange-400'}`}>SAVE</button>
-                                    <button onClick={() => setIsEditingName(false)} className={`text-[10px] px-2 py-1 rounded font-bold ${isDark ? 'bg-slate-700 hover:bg-slate-600 text-slate-300' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}`}>CANCEL</button>
+                                    <button onClick={handleUpdateName} className={`text-[10px] px-2 py-1 rounded font-bold text-white ${isDark ? 'bg-zinc-700 hover:bg-zinc-600' : 'bg-orange-500 hover:bg-orange-400'}`}>SAVE</button>
+                                    <button onClick={() => setIsEditingName(false)} className={`text-[10px] px-2 py-1 rounded font-bold ${isDark ? 'bg-zinc-800 hover:bg-zinc-600 text-zinc-300' : 'bg-zinc-200 hover:bg-zinc-300 text-zinc-800'}`}>CANCEL</button>
                                 </div>
                             </div>
                         ) : (
-                            <h2 className={`text-sm font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                            <h2 className={`text-sm font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-white' : 'text-zinc-800'}`}>
                                 {displayName || username || 'GUEST USER'}
                             </h2>
                         )}
 
-                        <div className={`flex items-center gap-2 px-3 py-1 rounded-full border ${isDark ? 'bg-black/40 border-white/5' : 'bg-slate-100 border-slate-200'}`}>
-                            <span className={`text-[10px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>CONNECTED</span>
+                        <div className={`flex items-center gap-2 px-3 py-1 rounded-full border ${isDark ? 'bg-black/40 border-white/5' : 'bg-zinc-100 border-zinc-200'}`}>
+                            <span className={`text-[10px] font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>CONNECTED</span>
                             <div className="flex gap-1">
-                                <div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_5px_rgba(59,130,246,0.6)]"></div>
+                                <div className="w-2 h-2 rounded-full bg-zinc-500 shadow-[0_0_5px_rgba(59,130,246,0.6)]"></div>
                                 <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.6)]"></div>
                             </div>
                         </div>
@@ -818,23 +985,23 @@ const Viewer3D = ({ onBack, onLogout }) => {
                     <div className="flex-1 overflow-y-auto">
                         {/* Control Module */}
                         <SidebarCategory title="Teleoperation" icon={Sliders} defaultOpen={true} theme={theme}>
-                            <div className="p-4 text-xs text-slate-500 text-center italic">
+                            <div className="p-4 text-xs text-zinc-500 text-center italic">
                                 Use the Map to Navigate
                             </div>
                         </SidebarCategory>
 
                         {/* Saved Locations */}
                         <SidebarCategory title="Saved Locations" icon={MapPin} defaultOpen={true} theme={theme}>
-                            <div className={`border rounded-lg overflow-hidden ${isDark ? 'bg-slate-800/50 border-white/5' : 'bg-white border-slate-200'}`}>
+                            <div className={`border rounded-lg overflow-hidden ${isDark ? 'bg-zinc-800/50 border-white/5' : 'bg-white border-zinc-200'}`}>
                                 {(!waypoints || waypoints.length === 0) ? (
-                                    <div className="p-4 text-center text-xs text-slate-500 font-mono">NO DATA</div>
+                                    <div className="p-4 text-center text-xs text-zinc-500 font-mono">NO DATA</div>
                                 ) : (
-                                    <ul className={`divide-y ${isDark ? 'divide-white/5' : 'divide-slate-100'}`}>
+                                    <ul className={`divide-y ${isDark ? 'divide-white/5' : 'divide-zinc-100'}`}>
                                         {waypoints.map((wp, i) => (
-                                            <li key={i} className={`flex items-center justify-between p-3 transition-colors group ${isDark ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}>
-                                                <span className={`text-sm font-medium ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{wp.name}</span>
+                                            <li key={i} className={`flex items-center justify-between p-3 transition-colors group ${isDark ? 'hover:bg-white/5' : 'hover:bg-zinc-50'}`}>
+                                                <span className={`text-sm font-medium ${isDark ? 'text-zinc-300' : 'text-zinc-600'}`}>{wp.name}</span>
                                                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button onClick={() => handleNavigate(wp)} className={`text-xs font-bold ${isDark ? 'text-blue-400 hover:text-blue-300' : 'text-orange-500 hover:text-orange-400'}`}>GO</button>
+                                                    <button onClick={() => handleNavigate(wp)} className={`text-xs font-bold ${isDark ? 'text-zinc-400 hover:text-zinc-300' : 'text-orange-500 hover:text-orange-400'}`}>GO</button>
                                                     <button onClick={() => handleDeleteWaypoint(wp.name)} className="text-xs text-red-500 hover:text-red-400">X</button>
                                                 </div>
                                             </li>
@@ -859,16 +1026,16 @@ const Viewer3D = ({ onBack, onLogout }) => {
                         {/* System Status */}
                         <SidebarCategory title="System Status" icon={Settings} theme={theme}>
                             <div className="space-y-2">
-                                <div className={`flex justify-between items-center text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                                <div className={`flex justify-between items-center text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                                     <span>Battery</span>
                                     <span className="text-green-500 font-mono">98%</span>
                                 </div>
-                                <div className={`h-1.5 w-full rounded-full overflow-hidden ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}>
+                                <div className={`h-1.5 w-full rounded-full overflow-hidden ${isDark ? 'bg-zinc-800' : 'bg-zinc-200'}`}>
                                     <div className="h-full bg-green-500 w-[98%]"></div>
                                 </div>
-                                <div className={`flex justify-between items-center text-xs pt-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                                <div className={`flex justify-between items-center text-xs pt-2 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                                     <span>Signal</span>
-                                    <span className="text-blue-500 font-mono">-42dBm</span>
+                                    <span className="text-zinc-400 font-mono">-42dBm</span>
                                 </div>
                             </div>
                         </SidebarCategory>
@@ -882,7 +1049,7 @@ const Viewer3D = ({ onBack, onLogout }) => {
                 {/* 3D Viewport */}
                 <div className={`flex-1 relative ${theme.bg} transition-colors duration-300`}>
                     <div className="absolute top-4 left-4 z-10 pointer-events-none">
-                        <div className={`backdrop-blur border p-2 rounded text-[10px] font-mono shadow-sm ${isDark ? 'bg-black/60 border-white/10 text-blue-300' : 'bg-white/80 border-slate-200 text-slate-600'}`}>
+                        <div className={`backdrop-blur border p-2 rounded text-[10px] font-mono shadow-sm ${isDark ? 'bg-zinc-950/80 border-white/10 text-zinc-300' : 'bg-white/80 border-zinc-200 text-zinc-600'}`}>
                             LAT: 2s :: VOX_GRID [{VOXEL_SIZE}m]
                         </div>
                     </div>
@@ -892,16 +1059,16 @@ const Viewer3D = ({ onBack, onLogout }) => {
                         {/* Toggle Tab */}
                         <button
                             onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
-                            className={`w-8 h-12 mt-10 rounded-l-lg border-y border-l flex items-center justify-center pointer-events-auto shadow-xl backdrop-blur-md transition-colors ${isDark ? 'bg-slate-900/80 border-white/10 text-blue-400 hover:text-white' : 'bg-white/90 border-slate-200 text-orange-500 hover:text-orange-600'}`}
+                            className={`w-8 h-12 mt-10 rounded-l-lg border-y border-l flex items-center justify-center pointer-events-auto shadow-xl backdrop-blur-md transition-colors ${isDark ? 'bg-zinc-900/80 border-white/10 text-zinc-400 hover:text-white' : 'bg-white/90 border-zinc-200 text-orange-500 hover:text-orange-600'}`}
                         >
                             {isRightSidebarOpen ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
                         </button>
 
                         <div className="flex flex-col gap-3 pointer-events-none w-72">
-                            <div className={`p-4 rounded-xl backdrop-blur-md border shadow-lg flex flex-col gap-2 pointer-events-auto ${isDark ? 'bg-black/60 border-white/10' : 'bg-white/80 border-slate-200'}`}>
+                            <div className={`p-4 rounded-xl backdrop-blur-md border shadow-lg flex flex-col gap-2 pointer-events-auto ${isDark ? 'bg-zinc-950/80 border-white/10' : 'bg-white/80 border-zinc-200'}`}>
                                 <div className="flex justify-between items-center gap-4">
-                                    <span className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Pointcloud Lum</span>
-                                    <span className={`font-mono text-[10px] ${isDark ? 'text-blue-400' : 'text-orange-500'}`}>{(pointCloudBrightness * 100).toFixed(0)}%</span>
+                                    <span className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>Pointcloud Lum</span>
+                                    <span className={`font-mono text-[10px] ${isDark ? 'text-zinc-400' : 'text-orange-500'}`}>{(pointCloudBrightness * 100).toFixed(0)}%</span>
                                 </div>
                                 <input
                                     type="range"
@@ -910,14 +1077,14 @@ const Viewer3D = ({ onBack, onLogout }) => {
                                     step="0.1"
                                     value={pointCloudBrightness}
                                     onChange={(e) => setPointCloudBrightness(parseFloat(e.target.value))}
-                                    className={`w-full h-1.5 rounded-full appearance-none outline-none cursor-pointer ${isDark ? 'bg-slate-700/50' : 'bg-slate-300'} [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full ${isDark ? '[&::-webkit-slider-thumb]:bg-blue-400' : '[&::-webkit-slider-thumb]:bg-orange-500'}`}
+                                    className={`w-full h-1.5 rounded-full appearance-none outline-none cursor-pointer ${isDark ? 'bg-zinc-800' : 'bg-zinc-300'} [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full ${isDark ? '[&::-webkit-slider-thumb]:bg-white shadow-[0_0_10px_white]' : '[&::-webkit-slider-thumb]:bg-orange-500'}`}
                                 />
 
-                                <div className="w-full h-px bg-slate-500/20 my-1"></div>
+                                <div className="w-full h-px bg-zinc-500/20 my-1"></div>
 
                                 <button
                                     onClick={toggleTopView}
-                                    className={`p-1.5 rounded flex items-center gap-2 justify-center transition-all ${isDark ? 'hover:bg-white/10 text-slate-300 hover:text-white' : 'hover:bg-slate-200 text-slate-600 hover:text-slate-900'}`}
+                                    className={`p-1.5 rounded flex items-center gap-2 justify-center transition-all ${isDark ? 'hover:bg-white/10 text-zinc-300 hover:text-white' : 'hover:bg-zinc-200 text-zinc-600 hover:text-zinc-950'}`}
                                     title="Toggle Top View"
                                 >
                                     <ArrowUp size={14} />
@@ -929,9 +1096,17 @@ const Viewer3D = ({ onBack, onLogout }) => {
                         </div>
                     </div>
 
+                    {/* MiniMap HUD - Bottom Left */}
+                    <div className="absolute bottom-6 left-6 z-20 flex flex-col gap-2">
+                        <div className={`text-[10px] font-bold uppercase tracking-wider mb-1 px-2 py-0.5 rounded backdrop-blur-md border ${isDark ? 'text-zinc-400 bg-black/40 border-white/5' : 'text-zinc-600 bg-white/60 border-zinc-200'}`}>
+                            Area Map Overlay
+                        </div>
+                        <MiniMap waypoints={waypoints} theme={theme} />
+                    </div>
+
                     {/* Camera Feed Overlay - Bottom Right */}
                     <div className="absolute bottom-6 right-6 z-20 flex flex-col items-end gap-2">
-                        <div className={`text-[10px] font-bold uppercase tracking-wider mb-1 px-2 py-0.5 rounded backdrop-blur-md border ${isDark ? 'text-slate-400 bg-black/40 border-white/5' : 'text-slate-600 bg-white/60 border-slate-200'}`}>
+                        <div className={`text-[10px] font-bold uppercase tracking-wider mb-1 px-2 py-0.5 rounded backdrop-blur-md border ${isDark ? 'text-zinc-400 bg-black/40 border-white/5' : 'text-zinc-600 bg-white/60 border-zinc-200'}`}>
                             Live Feed
                         </div>
                         <CameraFeed />
@@ -956,16 +1131,6 @@ const Viewer3D = ({ onBack, onLogout }) => {
                             />
                             {waypoints.map((wp, i) => <WaypointMarker key={i} index={i} isCompleted={i < 2 && waypoints.length > 2} wp={wp} onClick={handleNavigate} theme={theme} />)}
 
-                            {/* Route Line Connecting Waypoints */}
-                            {waypoints.length > 1 && (
-                                <Line
-                                    points={waypoints.map(wp => [wp.x, wp.y, wp.z])}
-                                    color="#ffffff"
-                                    lineWidth={4}
-                                    transparent
-                                    opacity={0.8}
-                                />
-                            )}
 
                             {selectedPoint && (
                                 <group position={[selectedPoint.x, selectedPoint.y, selectedPoint.z]}>
@@ -980,7 +1145,7 @@ const Viewer3D = ({ onBack, onLogout }) => {
                                             onPointerDown={e => e.stopPropagation()}
                                             onPointerUp={e => e.stopPropagation()}
                                             onClick={e => e.stopPropagation()}
-                                            className={`w-48 p-2 rounded-lg border shadow-xl backdrop-blur-md animate-in zoom-in-50 duration-200 ${isDark ? 'bg-slate-900/90 border-blue-500/50 text-white' : 'bg-white/90 border-orange-500/50 text-slate-800'}`}>
+                                            className={`w-48 p-2 rounded-lg border shadow-xl backdrop-blur-md animate-in zoom-in-50 duration-200 ${isDark ? 'bg-zinc-950/90 border-zinc-500/50 text-white' : 'bg-white/90 border-orange-500/50 text-zinc-800'}`}>
                                             <div className="text-[10px] font-mono opacity-50 mb-1 border-b pb-1 border-white/10 uppercase tracking-wider text-center">Location Target</div>
                                             <div className="flex justify-between text-[10px] font-mono mb-2 px-2">
                                                 <span>X: {selectedPoint.x.toFixed(1)}</span>
@@ -988,7 +1153,7 @@ const Viewer3D = ({ onBack, onLogout }) => {
                                             </div>
                                             <button
                                                 onClick={() => handleNavigate(selectedPoint)}
-                                                className={`w-full py-1.5 rounded text-xs font-bold mb-2 shadow-lg hover:scale-105 active:scale-95 transition-all ${isDark ? 'bg-blue-600 hover:bg-blue-500' : 'bg-orange-500 hover:bg-orange-400'} text-white`}
+                                                className={`w-full py-1.5 rounded text-xs font-bold mb-2 shadow-lg hover:scale-105 active:scale-95 transition-all ${isDark ? 'bg-zinc-700 hover:bg-zinc-600' : 'bg-orange-500 hover:bg-orange-400'} text-white`}
                                             >
                                                 Navigate Here
                                             </button>
@@ -1000,9 +1165,9 @@ const Viewer3D = ({ onBack, onLogout }) => {
                                                     onClick={e => e.stopPropagation()}
                                                     onKeyDown={e => e.stopPropagation()}
                                                     placeholder="Name..."
-                                                    className={`flex-1 text-[10px] px-1 rounded border bg-transparent focus:outline-none ${isDark ? 'border-white/20 focus:border-blue-500' : 'border-slate-300 focus:border-orange-500'}`}
+                                                    className={`flex-1 text-[10px] px-1 rounded border bg-transparent focus:outline-none ${isDark ? 'border-white/20 focus:border-white' : 'border-zinc-300 focus:border-orange-500'}`}
                                                 />
-                                                <button onClick={handleSaveWaypoint} className={`px-2 py-0.5 rounded text-[10px] font-bold ${isDark ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}>
+                                                <button onClick={handleSaveWaypoint} className={`px-2 py-0.5 rounded text-[10px] font-bold ${isDark ? 'bg-zinc-800 hover:bg-zinc-600' : 'bg-zinc-200 hover:bg-zinc-300'}`}>
                                                     Save
                                                 </button>
                                             </div>

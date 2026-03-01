@@ -58,6 +58,10 @@ func main() {
 		protected.GET("/waypoints", api.GetWaypoints)
 		protected.POST("/waypoints", api.SaveWaypoint)
 		protected.DELETE("/waypoints/:name", api.DeleteWaypoint)
+
+		// Profile Endpoints
+		protected.GET("/profile", api.GetProfile)
+		protected.POST("/profile", api.UpdateProfile)
 	}
 
 	// Server

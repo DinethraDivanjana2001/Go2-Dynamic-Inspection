@@ -9,6 +9,18 @@ type User struct {
 	gorm.Model
 	Username       string `gorm:"uniqueIndex;not null"`
 	HashedPassword string `gorm:"not null"`
+	ProfilePic     string `gorm:"type:text"` // Base64 encoded small image
+}
+
+// UserProfile represents the public-facing user profile
+type UserProfile struct {
+	Username   string `json:"username"`
+	ProfilePic string `json:"profile_pic"`
+}
+
+// UserProfileUpdate is the request to update profile details
+type UserProfileUpdate struct {
+	ProfilePic string `json:"profile_pic" binding:"required"`
 }
 
 // UserCreate is the incoming request payload for registration

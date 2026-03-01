@@ -107,6 +107,47 @@ func Login(c *gin.Context) {
 	})
 }
 
+// GetProfile returns the current user profile (including base64 profile pic)
+func GetProfile(c *gin.Context) {
+	username, _ := c.Get("username")
+
+	var user models.User
+	if err := database.DB.Where("username = ?", username).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.UserProfile{
+		Username:   user.Username,
+		ProfilePic: user.ProfilePic,
+	})
+}
+
+// UpdateProfile updates user profile settings
+func UpdateProfile(c *gin.Context) {
+	username, _ := c.Get("username")
+
+	var req models.UserProfileUpdate
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var user models.User
+	if err := database.DB.Where("username = ?", username).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	user.ProfilePic = req.ProfilePic
+	if err := database.DB.Save(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Profile updated successfully"})
+}
+
 // Navigate sends a goal to MQTT
 func Navigate(c *gin.Context) {
 	var goal models.GoalRequest

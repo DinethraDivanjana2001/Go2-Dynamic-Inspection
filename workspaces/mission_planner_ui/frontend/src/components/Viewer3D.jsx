@@ -320,6 +320,7 @@ const Viewer3D = ({ onBack, onLogout }) => {
     const [wpName, setWpName] = useState("");
     const [currentTheme, setCurrentTheme] = useState('dark');
     const [pathLength, setPathLength] = useState(0.0);
+    const [profilePic, setProfilePic] = useState(null);
 
     const controlsRef = useRef();
     const prevViewRef = useRef(null);
@@ -491,12 +492,86 @@ const Viewer3D = ({ onBack, onLogout }) => {
                         </SidebarCategory>
 
                         {/* User Settings */}
-                        <SidebarCategory title="User Settings" icon={UserIcon} theme={theme}>
-                            <div className="flex flex-col gap-3">
-                                <div className={`flex justify-between items-center text-xs p-2 rounded ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100 border border-slate-200'}`}>
-                                    <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Logged in as:</span>
-                                    <span className={`font-bold ${isDark ? 'text-blue-400' : 'text-orange-600'}`}>{username || 'User'}</span>
+                        <SidebarCategory title="User Settings" icon={UserIcon} theme={theme} defaultOpen={true}>
+                            <div className="flex flex-col gap-4">
+                                <div className="flex items-center gap-4">
+                                    {/* Profile Picture */}
+                                    <div className="relative group cursor-pointer" onClick={() => document.getElementById('profileUpload').click()}>
+                                        <div className={`w-14 h-14 rounded-full overflow-hidden border-2 flex items-center justify-center shrink-0 ${isDark ? 'border-blue-500 bg-slate-800' : 'border-orange-500 bg-slate-200'}`}>
+                                            {profilePic ? (
+                                                <img src={profilePic} alt="Profile" className="w-full h-full object-cover" />
+                                            ) : (
+                                                <UserIcon size={24} className={isDark ? "text-slate-600" : "text-slate-400"} />
+                                            )}
+                                        </div>
+                                        <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                            <span className="text-[8px] font-bold text-white uppercase text-center leading-tight">Change<br />Pic</span>
+                                        </div>
+                                        <input
+                                            type="file"
+                                            id="profileUpload"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0];
+                                                if (!file) return;
+
+                                                const reader = new FileReader();
+                                                reader.onload = (event) => {
+                                                    const img = new Image();
+                                                    img.onload = () => {
+                                                        const canvas = document.createElement('canvas');
+                                                        const MAX_SIZE = 150; // Compress down to max 150x150
+                                                        let width = img.width;
+                                                        let height = img.height;
+
+                                                        if (width > height) {
+                                                            if (width > MAX_SIZE) {
+                                                                height *= MAX_SIZE / width;
+                                                                width = MAX_SIZE;
+                                                            }
+                                                        } else {
+                                                            if (height > MAX_SIZE) {
+                                                                width *= MAX_SIZE / height;
+                                                                height = MAX_SIZE;
+                                                            }
+                                                        }
+
+                                                        canvas.width = width;
+                                                        canvas.height = height;
+                                                        const ctx = canvas.getContext('2d');
+                                                        ctx.drawImage(img, 0, 0, width, height);
+
+                                                        // output as low-quality jpeg base64
+                                                        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                                                        setProfilePic(dataUrl);
+
+                                                        // upload
+                                                        const token = localStorage.getItem('auth_token');
+                                                        const HOST = window.location.hostname;
+                                                        fetch(`http://${HOST}:8000/profile`, {
+                                                            method: 'POST',
+                                                            headers: {
+                                                                'Content-Type': 'application/json',
+                                                                'Authorization': `Bearer ${token}`
+                                                            },
+                                                            body: JSON.stringify({ profile_pic: dataUrl })
+                                                        }).catch(console.error);
+                                                    };
+                                                    img.src = event.target.result;
+                                                };
+                                                reader.readAsDataURL(file);
+                                                e.target.value = null; // reset
+                                            }}
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-col">
+                                        <span className={`text-[10px] uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Logged in as</span>
+                                        <span className={`text-base font-bold ${isDark ? 'text-blue-400' : 'text-orange-600'}`}>{username || 'User'}</span>
+                                    </div>
                                 </div>
+
                                 <button
                                     onClick={onLogout}
                                     className="w-full py-2 bg-red-500/90 hover:bg-red-500 text-white text-xs font-bold rounded shadow transition-colors"

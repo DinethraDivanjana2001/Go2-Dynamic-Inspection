@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Line, Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { ChevronDown, ChevronRight, Video, MapPin, Sliders, Settings, Sun, Moon, Layout, ArrowUp, User as UserIcon, Satellite, Flag, CloudSun, Clock, Battery } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronLeft, Video, MapPin, Sliders, Settings, Sun, Moon, Layout, ArrowUp, User as UserIcon, Satellite, Flag, CloudSun, Clock, Battery } from 'lucide-react';
 
 // --- Configuration ---
 const VOXEL_SIZE = 0.18;
@@ -107,7 +107,7 @@ const RobotDog = ({ color = "#cbd5e1" }) => {
             <Html position={[0, 0, 0.8]} center distanceFactor={10} style={{ pointerEvents: 'none' }}>
                 <div className="bg-black/80 text-white text-base font-bold px-4 py-1 rounded-full border-[2px] border-blue-400 whitespace-nowrap font-mono shadow-[0_0_15px_rgba(59,130,246,0.8)] flex items-center gap-2">
                     <div className="w-2.5 h-2.5 bg-blue-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,1)]"></div>
-                    Robo Dog
+                    Unitree Go2
                 </div>
             </Html>
 
@@ -451,6 +451,51 @@ const DashboardMetrics = ({ theme }) => {
     );
 };
 
+const RobotStatusWidget = ({ isDark }) => {
+    return (
+        <div className={`p-4 rounded-xl backdrop-blur-xl border shadow-2xl flex flex-col gap-3 w-full animate-in slide-in-from-right-10 duration-500 ${isDark ? 'bg-slate-900/80 border-white/10' : 'bg-white/90 border-slate-200'}`}>
+            <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                <div className="flex flex-col">
+                    <span className={`text-[10px] uppercase tracking-[0.2em] font-black ${isDark ? 'text-blue-400' : 'text-orange-500'}`}>Robot Model</span>
+                    <span className={`text-sm font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-800'}`}>Unitree Go2</span>
+                </div>
+                <div className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${isDark ? 'bg-blue-500/20 text-blue-400' : 'bg-orange-500/20 text-orange-600'}`}>
+                    Active
+                </div>
+            </div>
+
+            <div className="relative group overflow-hidden rounded-lg border border-white/5 bg-black/40 h-32 flex items-center justify-center">
+                <img
+                    src="/robot.png"
+                    alt="Unitree Go2"
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                    onError={(e) => {
+                        e.target.src = "https://www.unitree.com/images/go2/banner.png"; // Fallback URL if local image is missing
+                    }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+                <div className={`p-2 rounded-lg border ${isDark ? 'bg-black/20 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
+                    <div className="flex items-center gap-1.5 mb-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+                        <span className="text-[9px] font-bold uppercase text-slate-500">Health</span>
+                    </div>
+                    <span className={`text-xs font-bold ${isDark ? 'text-green-400' : 'text-green-600'}`}>NORMAL</span>
+                </div>
+                <div className={`p-2 rounded-lg border ${isDark ? 'bg-black/20 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
+                    <div className="flex items-center gap-1.5 mb-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
+                        <span className="text-[9px] font-bold uppercase text-slate-500">Temp</span>
+                    </div>
+                    <span className={`text-xs font-bold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>NORMAL</span>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const Viewer3D = ({ onBack, onLogout }) => {
     const [selectedPoint, setSelectedPoint] = useState(null);
@@ -459,6 +504,7 @@ const Viewer3D = ({ onBack, onLogout }) => {
     const [isEditingName, setIsEditingName] = useState(false);
     const [newName, setNewName] = useState("");
     const [pointCloudBrightness, setPointCloudBrightness] = useState(1.0);
+    const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
 
     useEffect(() => {
         const token = localStorage.getItem('auth_token');
@@ -611,8 +657,8 @@ const Viewer3D = ({ onBack, onLogout }) => {
                         <Layout size={20} />
                     </button>
                     <div className={`text-xl font-bold tracking-wider flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-800'}`}>
-                        <div className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-black shadow-[0_0_10px_rgba(59,130,246,0.6)] ${isDark ? 'bg-gradient-to-tr from-blue-600 to-cyan-400 text-white' : 'bg-gradient-to-tr from-orange-500 to-amber-400 text-white'}`}>RD</div>
-                        Robo Dog<span className={`font-thin ${isDark ? 'text-blue-500' : 'text-orange-500'}`}>OS</span>
+                        <div className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-black shadow-[0_0_10px_rgba(59,130,246,0.6)] ${isDark ? 'bg-gradient-to-tr from-blue-600 to-cyan-400 text-white' : 'bg-gradient-to-tr from-orange-500 to-amber-400 text-white'}`}>G2</div>
+                        Go2 <span className={`font-thin ${isDark ? 'text-blue-500' : 'text-orange-500'}`}>Planner Suite</span>
                     </div>
                 </div>
 
@@ -841,34 +887,45 @@ const Viewer3D = ({ onBack, onLogout }) => {
                         </div>
                     </div>
 
-                    {/* Top View Toggle & Brightness Control */}
-                    <div className="absolute top-4 right-4 z-20 flex flex-col gap-2 pointer-events-none">
-                        <div className={`p-3 rounded-lg backdrop-blur-md border shadow-lg flex flex-col gap-2 pointer-events-auto ${isDark ? 'bg-black/60 border-white/10' : 'bg-white/80 border-slate-200'}`}>
+                    {/* Collapsible Right Panel Overlay */}
+                    <div className={`absolute top-4 right-4 z-20 flex items-start transition-all duration-500 ease-in-out ${isRightSidebarOpen ? 'translate-x-0' : 'translate-x-[calc(100%-20px)]'}`}>
+                        {/* Toggle Tab */}
+                        <button
+                            onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
+                            className={`w-8 h-12 mt-10 rounded-l-lg border-y border-l flex items-center justify-center pointer-events-auto shadow-xl backdrop-blur-md transition-colors ${isDark ? 'bg-slate-900/80 border-white/10 text-blue-400 hover:text-white' : 'bg-white/90 border-slate-200 text-orange-500 hover:text-orange-600'}`}
+                        >
+                            {isRightSidebarOpen ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+                        </button>
 
-                            <div className="flex justify-between items-center gap-4">
-                                <span className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Pointcloud Lum</span>
-                                <span className={`font-mono text-[10px] ${isDark ? 'text-blue-400' : 'text-orange-500'}`}>{(pointCloudBrightness * 100).toFixed(0)}%</span>
+                        <div className="flex flex-col gap-3 pointer-events-none w-72">
+                            <div className={`p-4 rounded-xl backdrop-blur-md border shadow-lg flex flex-col gap-2 pointer-events-auto ${isDark ? 'bg-black/60 border-white/10' : 'bg-white/80 border-slate-200'}`}>
+                                <div className="flex justify-between items-center gap-4">
+                                    <span className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Pointcloud Lum</span>
+                                    <span className={`font-mono text-[10px] ${isDark ? 'text-blue-400' : 'text-orange-500'}`}>{(pointCloudBrightness * 100).toFixed(0)}%</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0.1"
+                                    max="3.0"
+                                    step="0.1"
+                                    value={pointCloudBrightness}
+                                    onChange={(e) => setPointCloudBrightness(parseFloat(e.target.value))}
+                                    className={`w-full h-1.5 rounded-full appearance-none outline-none cursor-pointer ${isDark ? 'bg-slate-700/50' : 'bg-slate-300'} [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full ${isDark ? '[&::-webkit-slider-thumb]:bg-blue-400' : '[&::-webkit-slider-thumb]:bg-orange-500'}`}
+                                />
+
+                                <div className="w-full h-px bg-slate-500/20 my-1"></div>
+
+                                <button
+                                    onClick={toggleTopView}
+                                    className={`p-1.5 rounded flex items-center gap-2 justify-center transition-all ${isDark ? 'hover:bg-white/10 text-slate-300 hover:text-white' : 'hover:bg-slate-200 text-slate-600 hover:text-slate-900'}`}
+                                    title="Toggle Top View"
+                                >
+                                    <ArrowUp size={14} />
+                                    <span className="text-[10px] font-bold uppercase tracking-wider">Top View</span>
+                                </button>
                             </div>
-                            <input
-                                type="range"
-                                min="0.1"
-                                max="3.0"
-                                step="0.1"
-                                value={pointCloudBrightness}
-                                onChange={(e) => setPointCloudBrightness(parseFloat(e.target.value))}
-                                className={`w-32 h-1.5 rounded-full appearance-none outline-none cursor-pointer ${isDark ? 'bg-slate-700/50' : 'bg-slate-300'} [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full ${isDark ? '[&::-webkit-slider-thumb]:bg-blue-400' : '[&::-webkit-slider-thumb]:bg-orange-500'}`}
-                            />
 
-                            <div className="w-full h-px bg-slate-500/20 my-1"></div>
-
-                            <button
-                                onClick={toggleTopView}
-                                className={`p-1.5 rounded flex items-center gap-2 justify-center transition-all ${isDark ? 'hover:bg-white/10 text-slate-300 hover:text-white' : 'hover:bg-slate-200 text-slate-600 hover:text-slate-900'}`}
-                                title="Toggle Top View"
-                            >
-                                <ArrowUp size={14} />
-                                <span className="text-[10px] font-bold uppercase tracking-wider">Top View</span>
-                            </button>
+                            <RobotStatusWidget isDark={isDark} />
                         </div>
                     </div>
 

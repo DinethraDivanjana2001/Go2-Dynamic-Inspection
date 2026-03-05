@@ -1,0 +1,20 @@
+# InspectObjects.action
+# BehaviorTree.CPP uses this via BT::RosActionNode<visual_inspection_interfaces::action::InspectObjects>
+
+# ── GOAL ─────────────────────────────────────────────────────────────────────
+int32  max_objects    # 0 = all detected, N = first N only
+bool   return_home    # true = servo returns 90,90 after done
+
+---
+
+# ── RESULT ───────────────────────────────────────────────────────────────────
+bool   success
+int32  objects_inspected
+string failed_reason  # "": success | "no_detection" | "ibvs_timeout" | "mqtt_error"
+
+---
+
+# ── FEEDBACK ─────────────────────────────────────────────────────────────────
+string  current_step    # "detecting" / "coarse" / "ibvs" / "capturing" / "publishing"
+int32   current_object  # which object number (1, 2, 3...)
+float32 ibvs_error_px   # pixel error during IBVS

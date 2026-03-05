@@ -1,211 +1,272 @@
-# Visual Inspection — Phase 2 Plan
-# What we build to connect into the Behaviour Tree
+# Visual Inspection — ROS2 Integration + Behaviour Tree Plan
 
-**Date:** March 2026  
-**Workspace:** `inspection_ws/` on laptop → SCP to `~/Documents/Visual_Inspection_ws/`  
-**Uses:** SAME venv + TensorRT engine already on Jetson — no reinstallation
-
----
-
-## 🗂️ Workspace Clarification
-
-```
-LAPTOP (develop):
-  Jetson_orin_nano/
-  └── inspection_ws/       ← new code here
-  └── jetson_workspace/    ← existing pipeline (unchanged)
-
-JETSON (runs):
-  ~/Documents/Visual_Inspection_ws/
-  ├── venv/                ← EXISTING — same venv, don't touch
-  ├── weights/
-  │   └── yolo11n.engine   ← EXISTING — same TRT engine, don't touch
-  ├── ibvs_pipeline.py     ← EXISTING — working pipeline
-  └── inspection_ws/       ← NEW code SCP'd here, uses same venv
-```
-
-**Rule:** `source ~/Documents/Visual_Inspection_ws/venv/bin/activate` — then run anything from `inspection_ws/` directly. Same TRT, same packages.
+**Stack:** ROS2 Humble + py_trees_ros + Python  
+**Existing:** Working ibvs_pipeline.py on Jetson (DO NOT break this)  
+**Goal:** Wrap existing pipeline into ROS2 nodes → connect to main BT
 
 ---
 
-## 🌳 Who Builds What
+## 📁 Current Jetson Workspace (flat, working)
 
 ```
-Other person builds:
-├── Full robot BT (navigation, waypoint, ramp, etc.)
-├── BT framework setup (BehaviorTree.CPP or py_trees_ros)
-└── Calls our inspection actions from the BT
-
-YOU build:
-└── Visual Inspection BT Node(s) — self-contained module
-    that the other person can plug into the tree
+~/Documents/Visual_Inspection_ws/
+├── venv/                    ← existing, keep
+├── weights/yolo11n.engine   ← existing TRT engine, keep
+├── ibvs_pipeline.py         ← existing working pipeline, keep
+├── ibvs_headless.py         ← existing launcher, keep
+├── ibvs_headed.py           ← existing launcher, keep
+├── calibration_config.py    ← existing, keep
+├── config/                  ← existing camera calibration, keep
+└── inspection_ws/           ← NEW folder SCP'd from laptop
+    └── (our new ROS2 code)
 ```
 
-**Your job: build the inspection module so it has a clean interface.  
-Their job: call that interface from the main BT.**
+**Rule:** Never modify existing files. New ROS2 nodes import from them.
 
 ---
 
-## 🔌 Interface — What We Expose to the BT
+## ✅ Step 0 (DONE) — Python Pipeline Working
 
-The other person's BT will call ONE action from you:
-
-```
-BT Action:  "InspectObjects"
-─────────────────────────────
-INPUT:
-  - trigger: bool (BT sends True to start)
-  - max_objects: int (how many objects to inspect, default=all)
-
-OUTPUT (returns to BT):
-  - status: SUCCESS / FAILURE
-  - objects_inspected: int (how many done)
-  - failed_reason: str (if FAILURE — "no_detection" / "ibvs_timeout" / "mqtt_error")
-
-SIDE EFFECTS:
-  - 4 images per object published to MQTT broker
-  - Servo returned to home position (90,90) after done
-```
-
-That's it — one clean action. The rest is internal to us.
+- ✅ Insta360 YOLO detection (TensorRT FP16, ~30 FPS)
+- ✅ COARSE positioning (cubic formula → servo)
+- ✅ FINE centering (IBVS, <10px error)
+- ✅ Camera auto-detection (udev symlinks)
+- ✅ Arduino auto-detection (USB vendor ID)
 
 ---
 
-## 📋 What WE Add to the Behaviour Tree (our steps)
+## 🔄 Step 1 — ROS2 Conversion (DO THIS FIRST)
 
-Even though the other person builds the BT, **you need to tell them what steps exist inside your action** so they can plan error handling. Here is what happens inside `InspectObjects`:
+Convert the working Python pipeline into ROS2 nodes so the BT person can connect.
+
+### 1a. ROS2 Package Structure
 
 ```
-InspectObjects [Sequence]
+inspection_ws/
+├── README.md                    ← for your friend
+├── PLAN.md                      ← this file
+├── setup_ros.sh                 ← install script for Jetson
 │
-├── STEP 1: Insta360 Multi-Object Detection
-│   ├── Run YOLO on Insta360
-│   ├── SUCCESS: objects detected → get list with positions
-│   └── FAILURE: no detection
-│       └── → Returns FAILURE to BT with reason="no_detection"
-│           (BT person handles retry / robot rotation / skip)
-│
-├── STEP 2: For Each Object (loop)
-│   │
-│   ├── STEP 2a: COARSE Positioning
-│   │   ├── Cubic formula → calculate servo angles
-│   │   ├── Send angles to Arduino → servo moves
-│   │   ├── SUCCESS: Logitech can see object
-│   │   └── FAILURE: object not in Logitech view
-│   │       └── Log skip, continue to next object
-│   │
-│   ├── STEP 2b: FINE Centering (IBVS)
-│   │   ├── Run IBVS loop until centered (<10px error)
-│   │   ├── SUCCESS: centered
-│   │   └── FAILURE: max iterations hit OR object lost
-│   │       └── Log skip, continue to next object
-│   │
-│   ├── STEP 2c: Capture 4 Images
-│   │   ├── Capture Image 1
-│   │   ├── Quick IBVS re-center (ensure still on target)
-│   │   ├── Capture Image 2
-│   │   ├── Quick IBVS re-center
-│   │   ├── Capture Image 3
-│   │   ├── Quick IBVS re-center
-│   │   └── Capture Image 4
-│   │
-│   ├── STEP 2d: Publish via MQTT
-│   │   ├── Pack 4 images + metadata (class, confidence, angles)
-│   │   ├── Publish to broker
-│   │   ├── SUCCESS: broker ACK received
-│   │   └── FAILURE: no ACK → save locally, retry later
-│   │
-│   └── STEP 2e: Mark Object Done → next object
-│
-└── STEP 3: Return to Home Position
-    ├── Send servo angles 90,90 to Arduino
-    └── Return SUCCESS to BT
+└── visual_inspection_ros/       ← ROS2 package
+    ├── package.xml
+    ├── setup.py
+    ├── setup.cfg
+    ├── resource/
+    │   └── visual_inspection_ros
+    ├── action/
+    │   └── InspectObjects.action  ← custom ROS2 action definition
+    ├── msg/
+    │   └── InspectionResult.msg   ← custom message
+    └── visual_inspection_ros/
+        ├── __init__.py
+        ├── camera_node.py           ← Node 1: publish camera feeds
+        ├── servo_node.py            ← Node 2: Arduino servo control
+        ├── ibvs_action_server.py    ← Node 3: IBVS as Action Server
+        ├── inspection_node.py       ← Node 4: full inspection coordinator
+        └── bt_nodes/
+            ├── __init__.py
+            ├── detect_bt_node.py    ← BT node: Insta360 detect
+            ├── coarse_bt_node.py    ← BT node: coarse position
+            ├── ibvs_bt_node.py      ← BT node: IBVS center
+            ├── capture_bt_node.py   ← BT node: capture 4 images
+            └── mqtt_bt_node.py      ← BT node: publish to MQTT
 ```
 
 ---
 
-## 📤 What to Tell the Other Person (BT Interface Spec)
+### 1b. ROS2 Topics and Actions We Expose
 
-Give them this info to connect in the main BT:
+**Topics (published by us):**
 
-```yaml
-# inspection_interface.yaml — share this with BT person
+| Topic | Type | Description |
+|-------|------|-------------|
+| `/visual_inspection/insta360/image_raw` | `sensor_msgs/Image` | Insta360 camera feed |
+| `/visual_inspection/logitech/image_raw` | `sensor_msgs/Image` | Logitech camera feed |
+| `/visual_inspection/status` | `std_msgs/String` | Pipeline status (IDLE/COARSE/FINE/CAPTURING) |
+| `/visual_inspection/ibvs_error` | `geometry_msgs/Point` | Current IBVS pixel error (x, y) |
+| `/visual_inspection/detections` | `std_msgs/String` | JSON of detected objects |
 
-action_name: InspectObjects
+**Topics (subscribed by us):**
 
-call_when:
-  - Robot has arrived at inspection waypoint
-  - Robot is stationary
+| Topic | Type | Description |
+|-------|------|-------------|
+| `/servo/pan_tilt` | `std_msgs/Int16MultiArray` | Direct servo command [tilt, pan] |
 
-inputs:
-  trigger: bool
+**Actions (we are the server, BT calls us):**
 
-outputs:
-  status: [SUCCESS, FAILURE]
-  objects_inspected: int
-  failed_reason: str   # only set on FAILURE
+```
+Action: /visual_inspection/inspect_objects
+Type:   visual_inspection_ros/action/InspectObjects
 
-failure_reasons:
-  no_detection: "YOLO found nothing on Insta360 — robot should rotate and retry"
-  ibvs_timeout: "Could not center any object — check camera / servo"
-  mqtt_error:   "Images captured but could not publish — check broker"
+Goal:
+  int32 max_objects        # 0 = inspect all detected, N = inspect only N
+  bool  return_home        # true = servo returns 90,90 after done
 
-runtime:
-  per_object: ~5-10 seconds (coarse + IBVS + 4 captures)
-  total: ~20-40 seconds for 3 objects
+Result:
+  bool   success
+  int32  objects_inspected
+  string failed_reason     # "no_detection" / "ibvs_timeout" / "mqtt_error" / ""
 
-side_effects:
-  - Servos move during inspection
-  - Servos return HOME (90,90) when done
-  - Images published to MQTT topic: inspection/images/{object_id}
+Feedback:
+  string current_step      # "detecting" / "coarse" / "ibvs" / "capturing" / "publishing"
+  int32  current_object    # which object number currently processing
+  float  ibvs_error_px     # current pixel error
 ```
 
 ---
 
-## 🔧 Implementation Plan (our side only)
+### 1c. The 4 ROS2 Nodes
 
-### Phase 2a — Multi-Object + ByteTracker (no BT yet)
-- [ ] Replace `SimpleTracker` with Ultralytics ByteTracker in pipeline
-  ```python
-  results = model.track(frame, persist=True, tracker="bytetrack.yaml")
-  # Each box gets .id (track_id) → process in order
-  ```
-- [ ] Add "inspect all objects" loop — process each track_id one by one
-- [ ] Mark inspected IDs → skip on next Insta360 frame
-- [ ] Test with multiple fire extinguishers / gauges visible
+#### Node 1: `camera_node.py`
+```
+Name: /visual_inspection/camera_publisher
+Publishes:
+  /visual_inspection/insta360/image_raw
+  /visual_inspection/logitech/image_raw
+Frequency: ~30 Hz
+Uses: cv2.VideoCapture with existing udev symlinks (/dev/insta360, /dev/logitech)
+```
 
-### Phase 2b — 4-Image Capture with Re-centering
-- [ ] After IBVS centered: capture image 1
-- [ ] Quick IBVS check (3-5 iterations max) → recenter if drifted
-- [ ] Capture image 2, 3, 4 — same pattern
-- [ ] Save to `capture/{timestamp}/{object_id}_img{1-4}.jpg`
-- [ ] Save metadata JSON alongside: class, confidence, servo_angles, timestamp
+#### Node 2: `servo_node.py`
+```
+Name: /visual_inspection/servo_controller
+Subscribes: /servo/pan_tilt  [tilt, pan] as Int16MultiArray
+Action: writes to Arduino serial (/dev/arduino)
+Uses: existing find_arduino() from ibvs_pipeline.py
+```
 
-### Phase 2c — MQTT Publisher
-- [ ] `pip install paho-mqtt` (in existing Jetson venv)
-- [ ] Connect to broker (need broker IP from team)
-- [ ] Publish `{4 images + metadata}` per object
-- [ ] Handle offline → save locally, retry when back online
+#### Node 3: `ibvs_action_server.py`
+```
+Name: /visual_inspection/ibvs_server
+Action Server: /visual_inspection/inspect_objects
+When called:
+  1. Runs YOLO on Insta360 frame (using existing TRT model)
+  2. COARSE: cubic formula → publishes to /servo/pan_tilt
+  3. FINE: IBVS loop → publishes to /servo/pan_tilt
+  4. CAPTURE: 4 images → publishes via MQTT
+  5. Sends result back to BT
+Publishes feedback: step-by-step progress
+```
 
-### Phase 2d — Wrap as clean callable module
-- [ ] Class `InspectionModule` with single method `run() → SUCCESS/FAILURE`
-- [ ] This is what the BT person calls
-- [ ] Standalone test: `python3 inspection_ws/test_inspection.py`
-
-### Phase 2e — ROS2 (when ROS2 available on Jetson)
-- [ ] Wrap `InspectionModule` as ROS2 Action Server
-- [ ] Action: `/inspection/run` (std_msgs)
-- [ ] BT calls this via ROS2 action client
+#### Node 4: `inspection_node.py` (optional orchestrator)
+```
+Name: /visual_inspection/inspection_coordinator
+Manages: multi-object queue, ByteTracker IDs, inspected list
+```
 
 ---
 
-## ❓ Clarify with Team
+## 🌳 Step 2 — Behaviour Tree Integration (py_trees_ros)
 
-1. **MQTT broker IP** — what is the broker host address?
-2. **BT framework** — which does the other person use? (BehaviorTree.CPP / py_trees_ros)
-   - If BehaviorTree.CPP → we expose a ROS2 action (C++ compatible)
-   - If py_trees_ros → we write a py_trees Action node class directly
-3. **ROS2 on Jetson?** — installed? which version? (affects how we expose the interface)
-4. **Image format** — raw JPEG or base64 encode in JSON for MQTT?
-5. **Object inspection order** — highest confidence first? left-to-right?
-6. **Re-center threshold** — how many px drift before recapture?
+**Your friend builds the main BT. You provide BT leaf nodes.**
+
+### BT Nodes We Provide
+
+Your friend adds these leaf nodes to the main tree:
+
+```python
+# They import from our package:
+from visual_inspection_ros.bt_nodes import (
+    DetectObjectsNode,     # Condition: checks if YOLO sees objects
+    InspectObjectsNode,    # Action: runs full inspection (wraps ROS2 Action)
+)
+```
+
+### What Goes Inside the BT (our section)
+
+```
+[BT Section: Visual Inspection]  ← your friend places this in the main tree
+│
+└── Sequence
+    ├── Condition: IsRobotStationary      ← from navigation BT (not us)
+    │
+    ├── Action: InspectObjects             ← OUR action node
+    │     (internally does COARSE+IBVS+CAPTURE+MQTT for all objects)
+    │     SUCCESS → BT continues
+    │     FAILURE(no_detection) → BT handles (rotate robot & retry)
+    │     FAILURE(ibvs_timeout) → BT handles (skip or alert)
+    │
+    └── Action: PublishInspectionSummary   ← OUR node (optional)
+```
+
+### Our BT Leaf Node Classes
+
+```python
+# detect_bt_node.py
+class DetectObjectsNode(py_trees.behaviour.Behaviour):
+    """Condition: Returns SUCCESS if YOLO detects objects on Insta360"""
+    # Stores detected objects in BT Blackboard for next nodes
+
+# ibvs_bt_node.py  
+class InspectObjectsNode(py_trees_ros.action_clients.Fromaction):
+    """Action: Calls /visual_inspection/inspect_objects ROS2 action"""
+    # Wraps ROS2 action as py_trees node
+    # Handles RUNNING/SUCCESS/FAILURE states
+```
+
+---
+
+## 📋 Implementation Order
+
+```
+Week 1: ROS2 Conversion
+├── [ ] Create ROS2 package (visual_inspection_ros)
+├── [ ] camera_node.py — publish both cameras as ROS2 topics
+├── [ ] servo_node.py  — Arduino control via ROS2 topic
+├── [ ] ibvs_action_server.py — IBVS as ROS2 Action Server
+└── [ ] Test: ros2 action send_goal /visual_inspection/inspect_objects ...
+
+Week 2: Multi-Object + Capture
+├── [ ] ByteTracker integration (Ultralytics model.track() with persist=True)
+├── [ ] 4-image capture with IBVS re-centering between captures
+├── [ ] Save images + metadata JSON to capture/ folder
+└── [ ] Test multiple object scenario
+
+Week 3: MQTT
+├── [ ] MQTTPublisher class (paho-mqtt, already in existing venv)
+├── [ ] Publish 4 images + metadata per object
+├── [ ] Connect to broker (need broker IP from team)
+└── [ ] Test end-to-end image delivery
+
+Week 4: BT Nodes
+├── [ ] DetectObjectsNode (py_trees Condition)
+├── [ ] InspectObjectsNode (py_trees_ros Action client)
+├── [ ] Share node classes with BT person
+└── [ ] Integration test with main BT
+```
+
+---
+
+## 🛠️ Setup on Jetson
+
+```bash
+# 1. Source existing venv (has all dependencies)
+source ~/Documents/Visual_Inspection_ws/venv/bin/activate
+
+# 2. Source ROS2 Humble
+source /opt/ros/humble/setup.bash
+
+# 3. Build our package
+cd ~/Documents/Visual_Inspection_ws/inspection_ws
+colcon build --packages-select visual_inspection_ros
+source install/setup.bash
+
+# 4. Run nodes
+ros2 run visual_inspection_ros camera_node
+ros2 run visual_inspection_ros ibvs_action_server
+
+# 5. Test action from terminal (instead of BT)
+ros2 action send_goal /visual_inspection/inspect_objects \
+  visual_inspection_ros/action/InspectObjects \
+  "{max_objects: 0, return_home: true}"
+```
+
+---
+
+## ❓ Open Questions (confirm with team)
+
+1. **MQTT broker IP/hostname** — needed for mqtt_bt_node.py
+2. **Gazebo** — for simulation testing? which robot model?
+3. **Shared BT blackboard keys** — what key names does main BT use for robot state?
+4. **py_trees_ros version** — `pip install py_trees_ros` or ROS apt package?
+5. **How to trigger us** — does BT call our action, or does main BT read our topic?

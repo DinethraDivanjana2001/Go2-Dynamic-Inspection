@@ -1,5 +1,4 @@
 from setuptools import setup
-import os
 from glob import glob
 
 package_name = 'visual_inspection_ros'
@@ -12,8 +11,6 @@ setup(
         ('share/ament_index/resource_index/packages',
             [f'resource/{package_name}']),
         (f'share/{package_name}', ['package.xml']),
-        (f'share/{package_name}/action', glob('action/*.action')),
-        (f'share/{package_name}/msg', glob('msg/*.msg')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -22,10 +19,8 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            # Run individual nodes:
-            'camera_node         = visual_inspection_ros.camera_node:main',
-            'servo_node          = visual_inspection_ros.servo_node:main',
-            'ibvs_action_server  = visual_inspection_ros.ibvs_action_server:main',
+            # Add only nodes that exist — add more as files are created
+            'camera_node = visual_inspection_ros.camera_node:main',
         ],
     },
 )

@@ -54,27 +54,26 @@ class CameraPublisherNode(Node):
         insta_idx = find_camera_index('/dev/insta360')
         logi_idx  = find_camera_index('/dev/logitech')
 
+        self.cap_insta = None
+        self.cap_logi  = None
+
         if insta_idx < 0:
-            self.get_logger().error('❌ Insta360 not found! Check /dev/insta360 udev symlink.')
-            raise RuntimeError('Insta360 not found')
+            self.get_logger().warn('⚠️  Insta360 not found at /dev/insta360 — check udev rules and camera connection')
+        else:
+            self.get_logger().info(f'✅ Insta360: /dev/video{insta_idx}')
+            self.cap_insta = cv2.VideoCapture(insta_idx)
+            self.cap_insta.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
+            self.cap_insta.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
+            self.cap_insta.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         if logi_idx < 0:
-            self.get_logger().error('❌ Logitech not found! Check /dev/logitech udev symlink.')
-            raise RuntimeError('Logitech not found')
-
-        self.get_logger().info(f'✅ Insta360: /dev/video{insta_idx}')
-        self.get_logger().info(f'✅ Logitech:  /dev/video{logi_idx}')
-
-        # --- Open cameras ---
-        self.cap_insta = cv2.VideoCapture(insta_idx)
-        self.cap_insta.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
-        self.cap_insta.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
-        self.cap_insta.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-        self.cap_logi = cv2.VideoCapture(logi_idx)
-        self.cap_logi.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
-        self.cap_logi.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.cap_logi.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            self.get_logger().warn('⚠️  Logitech not found at /dev/logitech — check udev rules and camera connection')
+        else:
+            self.get_logger().info(f'✅ Logitech:  /dev/video{logi_idx}')
+            self.cap_logi = cv2.VideoCapture(logi_idx)
+            self.cap_logi.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
+            self.cap_logi.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.cap_logi.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         # --- Publishers ---
         self.pub_insta = self.create_publisher(
@@ -88,20 +87,22 @@ class CameraPublisherNode(Node):
 
     def timer_callback(self):
         # Insta360
-        ret_i, frame_i = self.cap_insta.read()
-        if ret_i and frame_i is not None:
-            msg = self.bridge.cv2_to_imgmsg(frame_i, encoding='bgr8')
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.header.frame_id = 'insta360_frame'
-            self.pub_insta.publish(msg)
+        if self.cap_insta is not None:
+            ret_i, frame_i = self.cap_insta.read()
+            if ret_i and frame_i is not None:
+                msg = self.bridge.cv2_to_imgmsg(frame_i, encoding='bgr8')
+                msg.header.stamp = self.get_clock().now().to_msg()
+                msg.header.frame_id = 'insta360_frame'
+                self.pub_insta.publish(msg)
 
         # Logitech
-        ret_l, frame_l = self.cap_logi.read()
-        if ret_l and frame_l is not None:
-            msg = self.bridge.cv2_to_imgmsg(frame_l, encoding='bgr8')
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.header.frame_id = 'logitech_frame'
-            self.pub_logi.publish(msg)
+        if self.cap_logi is not None:
+            ret_l, frame_l = self.cap_logi.read()
+            if ret_l and frame_l is not None:
+                msg = self.bridge.cv2_to_imgmsg(frame_l, encoding='bgr8')
+                msg.header.stamp = self.get_clock().now().to_msg()
+                msg.header.frame_id = 'logitech_frame'
+                self.pub_logi.publish(msg)
 
     def destroy_node(self):
         self.cap_insta.release()

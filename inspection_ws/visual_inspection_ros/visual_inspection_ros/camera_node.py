@@ -58,9 +58,9 @@ class CameraPublisherNode(Node):
         self.cap_insta = None
         self.cap_logi  = None
 
-        # Insta360 — open by integer index (no MJPEG — Jetson V4L2 lockup)
+        # Insta360 — integer index + explicit V4L2 backend (same as ibvs_pipeline.py)
         if insta_idx >= 0:
-            self.cap_insta = cv2.VideoCapture(insta_idx)
+            self.cap_insta = cv2.VideoCapture(insta_idx, cv2.CAP_V4L2)
             self.cap_insta.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
             self.cap_insta.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
             self.cap_insta.set(cv2.CAP_PROP_FPS, fps)

@@ -37,16 +37,30 @@ class CameraPublisherNode(Node):
         logi_dev  = self.get_parameter('logi_device').value
         fps       = self.get_parameter('fps').value
 
-        self.get_logger().info(f'Opening Insta360 at: {insta_dev}')
-        self.get_logger().info(f'Opening Logitech  at: {logi_dev}')
+        # Resolve udev symlink → integer index (e.g. /dev/insta360 → /dev/video3 → 3)
+        # Using integer index matches working ibvs_pipeline.py approach
+        def resolve_index(dev_path):
+            if not os.path.exists(dev_path):
+                return -1
+            try:
+                real = os.path.realpath(dev_path)   # /dev/video3
+                return int(real.replace('/dev/video', ''))
+            except ValueError:
+                return -1
+
+        insta_idx = resolve_index(insta_dev)
+        logi_idx  = resolve_index(logi_dev)
+
+        self.get_logger().info(f'Insta360: {insta_dev} → /dev/video{insta_idx}')
+        self.get_logger().info(f'Logitech:  {logi_dev} → /dev/video{logi_idx}')
 
         # --- Open cameras directly by path (same as working ibvs_pipeline.py) ---
         self.cap_insta = None
         self.cap_logi  = None
 
-        # Insta360
-        if os.path.exists(insta_dev):
-            self.cap_insta = cv2.VideoCapture(insta_dev)
+        # Insta360 — open by integer index (no MJPEG — Jetson V4L2 lockup)
+        if insta_idx >= 0:
+            self.cap_insta = cv2.VideoCapture(insta_idx)
             self.cap_insta.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
             self.cap_insta.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
             self.cap_insta.set(cv2.CAP_PROP_FPS, fps)
@@ -54,14 +68,14 @@ class CameraPublisherNode(Node):
             if self.cap_insta.isOpened():
                 self.get_logger().info('✅ Insta360 opened')
             else:
-                self.get_logger().warn('⚠️  Insta360 device found but failed to open')
+                self.get_logger().warn('⚠️  Insta360 failed to open — another process may be using it')
                 self.cap_insta = None
         else:
-            self.get_logger().warn(f'⚠️  Insta360 not found at {insta_dev} — is it plugged in?')
+            self.get_logger().warn(f'⚠️  Insta360 not found at {insta_dev}')
 
-        # Logitech
-        if os.path.exists(logi_dev):
-            self.cap_logi = cv2.VideoCapture(logi_dev)
+        # Logitech — open by integer index + MJPEG
+        if logi_idx >= 0:
+            self.cap_logi = cv2.VideoCapture(logi_idx)
             self.cap_logi.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
             self.cap_logi.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
             self.cap_logi.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -70,10 +84,10 @@ class CameraPublisherNode(Node):
             if self.cap_logi.isOpened():
                 self.get_logger().info('✅ Logitech opened')
             else:
-                self.get_logger().warn('⚠️  Logitech device found but failed to open')
+                self.get_logger().warn('⚠️  Logitech failed to open — another process may be using it')
                 self.cap_logi = None
         else:
-            self.get_logger().warn(f'⚠️  Logitech not found at {logi_dev} — is it plugged in?')
+            self.get_logger().warn(f'⚠️  Logitech not found at {logi_dev}')
 
         # --- Publishers ---
         self.pub_insta = self.create_publisher(

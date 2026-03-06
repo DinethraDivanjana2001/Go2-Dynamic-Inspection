@@ -20,8 +20,9 @@ setup(
     entry_points={
         'console_scripts': [
             # Add only nodes that exist — add more as files are created
-            'camera_node = visual_inspection_ros.camera_node:main',
-            'servo_node  = visual_inspection_ros.servo_node:main',
+            'camera_node         = visual_inspection_ros.camera_node:main',
+            'servo_node          = visual_inspection_ros.servo_node:main',
+            'ibvs_action_server  = visual_inspection_ros.ibvs_action_server:main',
         ],
     },
 )

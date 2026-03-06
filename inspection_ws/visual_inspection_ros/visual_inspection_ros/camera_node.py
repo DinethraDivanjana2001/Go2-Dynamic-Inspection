@@ -116,7 +116,7 @@ class CameraPublisherNode(Node):
         fps = self.get_parameter('fps').value
 
         # --- Detect cameras (same 3-layer logic as ibvs_pipeline.py) ---
-        self.get_logger().info('🔍 Detecting cameras...')
+        self.get_logger().info('Detecting cameras...')
 
         insta_idx = find_camera('Insta360')
         logi_idx  = find_camera('Logitech')
@@ -130,9 +130,9 @@ class CameraPublisherNode(Node):
             self.cap_insta.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
             self.cap_insta.set(cv2.CAP_PROP_FPS, fps)
             self.cap_insta.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            self.get_logger().info(f'✅ Insta360 at /dev/video{insta_idx}')
+            self.get_logger().info(f'Insta360 at /dev/video{insta_idx}')
         else:
-            self.get_logger().warn('⚠️  Insta360 not found — plug in and restart')
+            self.get_logger().warn('Insta360 not found -- plug in and restart')
 
         if logi_idx >= 0:
             self.cap_logi = cv2.VideoCapture(logi_idx, cv2.CAP_V4L2)
@@ -141,9 +141,9 @@ class CameraPublisherNode(Node):
             self.cap_logi.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             self.cap_logi.set(cv2.CAP_PROP_FPS, fps)
             self.cap_logi.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            self.get_logger().info(f'✅ Logitech  at /dev/video{logi_idx}')
+            self.get_logger().info(f'Logitech at /dev/video{logi_idx}')
         else:
-            self.get_logger().warn('⚠️  Logitech not found — plug in and restart')
+            self.get_logger().warn('Logitech not found -- plug in and restart')
 
         # --- Publishers ---
         self.pub_insta = self.create_publisher(
@@ -152,7 +152,7 @@ class CameraPublisherNode(Node):
             Image, '/visual_inspection/logitech/image_raw', 10)
 
         self.timer = self.create_timer(1.0 / fps, self.timer_callback)
-        self.get_logger().info(f'📷 Camera publisher running at {fps} Hz')
+        self.get_logger().info(f'Camera publisher running at {fps} Hz')
 
     def timer_callback(self):
         if self.cap_insta is not None and self.cap_insta.isOpened():

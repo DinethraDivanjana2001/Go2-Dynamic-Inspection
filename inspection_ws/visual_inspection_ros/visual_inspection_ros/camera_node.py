@@ -2,45 +2,25 @@
 """
 camera_node.py — ROS2 Node: Publish Insta360 + Logitech camera feeds as topics.
 
+Based on working kalibr_ws implementations (webcam_publisher + insta360_publisher).
+Uses direct device path opens — no frame-verification that was causing false negatives.
+
 Topics published:
   /visual_inspection/insta360/image_raw  (sensor_msgs/Image)
   /visual_inspection/logitech/image_raw  (sensor_msgs/Image)
 
 Test:
-  ros2 topic list
+  ros2 topic list | grep visual_inspection
   ros2 topic hz /visual_inspection/insta360/image_raw
-  ros2 run rqt_image_view rqt_image_view
 """
 
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
-
 import cv2
 import os
-import glob as glob_module
 
-
-# ── Device Detection (same as ibvs_pipeline.py) ──────────────────────────────
-
-def find_camera_index(udev_path):
-    """Open camera by udev symlink path, return OpenCV index."""
-    if os.path.exists(udev_path):
-        cap = cv2.VideoCapture(udev_path)
-        if cap.isOpened():
-            ret, frame = cap.read()
-            cap.release()
-            if ret and frame is not None:
-                real = os.path.realpath(udev_path)
-                try:
-                    return int(real.replace('/dev/video', ''))
-                except ValueError:
-                    pass
-    return -1
-
-
-# ── ROS2 Node ────────────────────────────────────────────────────────────────
 
 class CameraPublisherNode(Node):
 
@@ -48,32 +28,52 @@ class CameraPublisherNode(Node):
         super().__init__('camera_publisher')
         self.bridge = CvBridge()
 
-        # --- Detect cameras ---
-        self.get_logger().info('🔍 Detecting cameras...')
+        # --- Parameters (can override from launch file or CLI) ---
+        self.declare_parameter('insta_device', '/dev/insta360')
+        self.declare_parameter('logi_device',  '/dev/logitech')
+        self.declare_parameter('fps', 30)
 
-        insta_idx = find_camera_index('/dev/insta360')
-        logi_idx  = find_camera_index('/dev/logitech')
+        insta_dev = self.get_parameter('insta_device').value
+        logi_dev  = self.get_parameter('logi_device').value
+        fps       = self.get_parameter('fps').value
 
+        self.get_logger().info(f'Opening Insta360 at: {insta_dev}')
+        self.get_logger().info(f'Opening Logitech  at: {logi_dev}')
+
+        # --- Open cameras directly by path (same as working ibvs_pipeline.py) ---
         self.cap_insta = None
         self.cap_logi  = None
 
-        if insta_idx < 0:
-            self.get_logger().warn('⚠️  Insta360 not found at /dev/insta360 — check udev rules and camera connection')
-        else:
-            self.get_logger().info(f'✅ Insta360: /dev/video{insta_idx}')
-            self.cap_insta = cv2.VideoCapture(insta_idx)
+        # Insta360
+        if os.path.exists(insta_dev):
+            self.cap_insta = cv2.VideoCapture(insta_dev)
             self.cap_insta.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
             self.cap_insta.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
+            self.cap_insta.set(cv2.CAP_PROP_FPS, fps)
             self.cap_insta.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-        if logi_idx < 0:
-            self.get_logger().warn('⚠️  Logitech not found at /dev/logitech — check udev rules and camera connection')
+            if self.cap_insta.isOpened():
+                self.get_logger().info('✅ Insta360 opened')
+            else:
+                self.get_logger().warn('⚠️  Insta360 device found but failed to open')
+                self.cap_insta = None
         else:
-            self.get_logger().info(f'✅ Logitech:  /dev/video{logi_idx}')
-            self.cap_logi = cv2.VideoCapture(logi_idx)
+            self.get_logger().warn(f'⚠️  Insta360 not found at {insta_dev} — is it plugged in?')
+
+        # Logitech
+        if os.path.exists(logi_dev):
+            self.cap_logi = cv2.VideoCapture(logi_dev)
+            self.cap_logi.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
             self.cap_logi.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
             self.cap_logi.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.cap_logi.set(cv2.CAP_PROP_FPS, fps)
             self.cap_logi.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            if self.cap_logi.isOpened():
+                self.get_logger().info('✅ Logitech opened')
+            else:
+                self.get_logger().warn('⚠️  Logitech device found but failed to open')
+                self.cap_logi = None
+        else:
+            self.get_logger().warn(f'⚠️  Logitech not found at {logi_dev} — is it plugged in?')
 
         # --- Publishers ---
         self.pub_insta = self.create_publisher(
@@ -81,32 +81,34 @@ class CameraPublisherNode(Node):
         self.pub_logi = self.create_publisher(
             Image, '/visual_inspection/logitech/image_raw', 10)
 
-        # --- Timer: publish at ~30 Hz ---
-        self.timer = self.create_timer(1.0 / 30.0, self.timer_callback)
-        self.get_logger().info('📷 Camera publisher started at 30 Hz')
+        # --- Timer ---
+        self.timer = self.create_timer(1.0 / fps, self.timer_callback)
+        self.get_logger().info(f'📷 Camera publisher running at {fps} Hz')
 
     def timer_callback(self):
         # Insta360
-        if self.cap_insta is not None:
-            ret_i, frame_i = self.cap_insta.read()
-            if ret_i and frame_i is not None:
-                msg = self.bridge.cv2_to_imgmsg(frame_i, encoding='bgr8')
+        if self.cap_insta is not None and self.cap_insta.isOpened():
+            ret, frame = self.cap_insta.read()
+            if ret and frame is not None:
+                msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
                 msg.header.stamp = self.get_clock().now().to_msg()
                 msg.header.frame_id = 'insta360_frame'
                 self.pub_insta.publish(msg)
 
         # Logitech
-        if self.cap_logi is not None:
-            ret_l, frame_l = self.cap_logi.read()
-            if ret_l and frame_l is not None:
-                msg = self.bridge.cv2_to_imgmsg(frame_l, encoding='bgr8')
+        if self.cap_logi is not None and self.cap_logi.isOpened():
+            ret, frame = self.cap_logi.read()
+            if ret and frame is not None:
+                msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
                 msg.header.stamp = self.get_clock().now().to_msg()
                 msg.header.frame_id = 'logitech_frame'
                 self.pub_logi.publish(msg)
 
     def destroy_node(self):
-        self.cap_insta.release()
-        self.cap_logi.release()
+        if self.cap_insta:
+            self.cap_insta.release()
+        if self.cap_logi:
+            self.cap_logi.release()
         super().destroy_node()
 
 

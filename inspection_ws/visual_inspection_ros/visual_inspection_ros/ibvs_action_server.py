@@ -172,6 +172,10 @@ class IBVSActionServer(Node):
         else:
             self.get_logger().error('YOLO load failed')
 
+        # YOLO lock (prevent concurrent inference between timer and goal)
+        self._yolo_lock   = threading.Lock()
+        self._goal_active = False
+
         # Action server
         self._action_server = ActionServer(
             self, InspectObjects,
@@ -181,6 +185,10 @@ class IBVSActionServer(Node):
             cancel_callback=self.cancel_callback,
             callback_group=self.cb_group
         )
+
+        # Continuous detection timer -- publishes debug images every 0.5s for RViz
+        self.create_timer(0.5, self._debug_timer_cb)
+
         self.get_logger().info('Action server ready at /visual_inspection/inspect_objects')
         self.get_logger().info('Debug topics: /visual_inspection/insta360/debug  /visual_inspection/logitech/debug')
 
@@ -214,6 +222,30 @@ class IBVSActionServer(Node):
         self.get_logger().info('Cancel requested')
         return CancelResponse.ACCEPT
 
+    # ---- Continuous debug timer --------------------------------------------
+
+    def _debug_timer_cb(self):
+        """Runs at 2Hz -- publishes debug images to RViz even without active goal."""
+        if self._goal_active:
+            return  # goal is running its own detection loop
+        if not self._yolo_lock.acquire(blocking=False):
+            return  # YOLO busy
+        try:
+            insta_frame = self._get_insta_frame()
+            logi_frame  = self._get_logi_frame()
+            if insta_frame is not None and self.model is not None:
+                _, debug = self._detect_raw(insta_frame)
+                msg = self.bridge.cv2_to_imgmsg(debug, encoding='bgr8')
+                msg.header.stamp = self.get_clock().now().to_msg()
+                self.debug_insta_pub.publish(msg)
+            if logi_frame is not None and self.model is not None:
+                _, debug = self._detect_raw(logi_frame)
+                msg = self.bridge.cv2_to_imgmsg(debug, encoding='bgr8')
+                msg.header.stamp = self.get_clock().now().to_msg()
+                self.debug_logi_pub.publish(msg)
+        finally:
+            self._yolo_lock.release()
+
     # ---- Servo helpers ------------------------------------------------------
 
     def _send_servo(self, tilt, pan):
@@ -227,46 +259,43 @@ class IBVSActionServer(Node):
 
     # ---- Detection ----------------------------------------------------------
 
-    def _detect(self, frame, conf=None):
-        """Run YOLO. Returns list of (cx, cy, x1, y1, x2, y2, confidence, class_id).
-        Also publishes debug image with bounding boxes.
-        """
+    def _detect_raw(self, frame, conf=None):
+        """Run YOLO on a frame. Returns (detections, debug_frame). Does NOT lock."""
         if self.model is None or frame is None:
-            return []
-
+            return [], frame
         threshold = conf if conf is not None else self.YOLO_CONF
         results   = self.model(frame, verbose=False, conf=threshold)[0]
         detections = []
         debug = frame.copy()
-
         for box in results.boxes:
             x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
-            cx   = (x1 + x2) / 2.0
-            cy   = (y1 + y2) / 2.0
-            c    = float(box.conf[0])
-            cls  = int(box.cls[0])
+            cx  = (x1 + x2) / 2.0
+            cy  = (y1 + y2) / 2.0
+            c   = float(box.conf[0])
+            cls = int(box.cls[0])
             detections.append((cx, cy, x1, y1, x2, y2, c, cls))
-
-            # Draw bounding box on debug frame
             cv2.rectangle(debug, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.circle(debug, (int(cx), int(cy)), 5, (0, 0, 255), -1)
             cv2.putText(debug, f'{c:.2f}', (x1, y1 - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-
-        # Draw crosshair on debug frame
         h, w = frame.shape[:2]
         cv2.line(debug, (w//2, 0), (w//2, h), (100, 100, 255), 1)
         cv2.line(debug, (0, h//2), (w, h//2), (100, 100, 255), 1)
-
         detections.sort(key=lambda d: d[6], reverse=True)
         return detections, debug
+
+    def _detect(self, frame, conf=None):
+        """Run YOLO with YOLO lock. Returns (detections, debug_frame)."""
+        if frame is None:
+            return [], frame
+        with self._yolo_lock:
+            return self._detect_raw(frame, conf)
 
     def _detect_insta(self, conf=None):
         frame = self._get_insta_frame()
         if frame is None:
             return [], None
         dets, debug = self._detect(frame, conf)
-        # Publish debug image
         msg = self.bridge.cv2_to_imgmsg(debug, encoding='bgr8')
         msg.header.stamp = self.get_clock().now().to_msg()
         self.debug_insta_pub.publish(msg)
@@ -277,7 +306,6 @@ class IBVSActionServer(Node):
         if frame is None:
             return [], None
         dets, debug = self._detect(frame, conf)
-        # Publish debug image
         msg = self.bridge.cv2_to_imgmsg(debug, encoding='bgr8')
         msg.header.stamp = self.get_clock().now().to_msg()
         self.debug_logi_pub.publish(msg)
@@ -285,7 +313,7 @@ class IBVSActionServer(Node):
 
     # ---- IBVS ---------------------------------------------------------------
 
-    def _ibvs_center(self, goal_handle, obj_idx, feedback):
+    def _ibvs_center(self, goal_handle, obj_idx, feedback, start_pan=90.0, start_tilt=90.0):
         """Stage 2: fine IBVS on Logitech frame. Returns True if converged."""
         self.get_logger().info(f'  IBVS centering on Logitech (max {self.IBVS_MAX_ITER} iter)...')
 
@@ -295,11 +323,9 @@ class IBVSActionServer(Node):
         prev_e_pan    = 0.0
         prev_e_tilt   = 0.0
 
-        # Track current servo position (start from home after coarse)
-        # We don't know exact current position so read from last command
-        # Use neutral starting point; corrections are incremental
-        current_pan  = 90.0
-        current_tilt = 90.0
+        # Start from coarse position (not home)
+        current_pan  = float(start_pan)
+        current_tilt = float(start_tilt)
 
         dt = self.SERVO_DELAY + 0.033  # approx frame interval
 
@@ -421,6 +447,7 @@ class IBVSActionServer(Node):
 
     def execute_callback(self, goal_handle):
         self.get_logger().info('Starting inspection...')
+        self._goal_active = True
 
         max_objects = goal_handle.request.max_objects
         return_home = goal_handle.request.return_home
@@ -472,7 +499,8 @@ class IBVSActionServer(Node):
             # ---- Stage 2: IBVS on Logitech ----
             feedback.current_step = 'ibvs'
             goal_handle.publish_feedback(feedback)
-            centred = self._ibvs_center(goal_handle, obj_idx, feedback)
+            centred = self._ibvs_center(goal_handle, obj_idx, feedback,
+                                        start_pan=pan_coarse, start_tilt=tilt_coarse)
 
             if not centred:
                 result.success           = False
@@ -497,6 +525,7 @@ class IBVSActionServer(Node):
             n_inspected += 1
             self.get_logger().info(f'Object {obj_idx} done')
 
+        self._goal_active = False
         if return_home:
             self._home_servos()
 

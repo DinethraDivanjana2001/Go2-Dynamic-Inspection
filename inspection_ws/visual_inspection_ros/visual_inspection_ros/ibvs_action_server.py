@@ -45,34 +45,31 @@ import threading
 
 
 # ---------------------------------------------------------------------------
-# Calibration -- coarse positioning formula (cubic, from calibration_points.csv)
-# Replace coefficients below if you recalibrate.
+# Calibration -- coarse positioning (linear, fitted from calibration_points.csv)
+# Pan  = PAN_M  * pixel_x + PAN_C
+# Tilt = TILT_M * pixel_y + TILT_C
+# Fitted using 156 calibration points. RMSE: pan=5.45 deg, tilt=5.58 deg.
+# Run tools/calib_fov.py to recalibrate if mount/camera changes.
 # ---------------------------------------------------------------------------
 
-# Tilt formula: tilt_servo = f(pixel_row)
-# Pan formula:  pan_servo  = f(pixel_col)
-# These are the cubic polynomial coefficients [a3, a2, a1, a0]
-# from the hemisphere mapping calibration (tools/calib_fov.py)
-TILT_COEFFS = [0.0, 0.0, 0.0, 90.0]   # placeholder -- update from your calibration
-PAN_COEFFS  = [0.0, 0.0, 0.0, 90.0]   # placeholder -- update from your calibration
+PAN_M  = -0.33851
+PAN_C  =  205.84
+TILT_M = -0.32650
+TILT_C =  139.99
 
 # Frame centre for 640x360 Insta360 display
 CX = 320.0
 CY = 180.0
 
 
-def coarse_tilt(py):
-    """Map pixel row to tilt servo angle using cubic formula."""
-    dy = py - CY
-    a3, a2, a1, a0 = TILT_COEFFS
-    return a3*dy**3 + a2*dy**2 + a1*dy + a0
-
-
 def coarse_pan(px):
-    """Map pixel col to pan servo angle using cubic formula."""
-    dx = px - CX
-    a3, a2, a1, a0 = PAN_COEFFS
-    return a3*dx**3 + a2*dx**2 + a1*dx + a0
+    """Map Insta360 pixel column to pan servo angle."""
+    return float(np.clip(PAN_M * px + PAN_C, 0, 180))
+
+
+def coarse_tilt(py):
+    """Map Insta360 pixel row to tilt servo angle."""
+    return float(np.clip(TILT_M * py + TILT_C, 0, 180))
 
 
 def clamp_servo(val):

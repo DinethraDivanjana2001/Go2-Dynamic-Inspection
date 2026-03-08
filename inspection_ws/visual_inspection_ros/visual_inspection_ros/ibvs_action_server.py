@@ -214,8 +214,9 @@ class IBVSActionServer(Node):
     # ---- Servo helpers -------------------------------------------------------
 
     def _servo(self, tilt, pan):
+        # Tilt is hardware-inverted (servo mounted in reverse direction)
         msg = Int16MultiArray()
-        msg.data = [clamp(tilt), clamp(pan)]
+        msg.data = [clamp(180 - tilt), clamp(pan)]
         self.servo_pub.publish(msg)
 
     def _home(self):

@@ -125,6 +125,11 @@ class IBVSActionServer(Node):
     # Tilt servo mounted in reverse -- flip to 180-tilt
     TILT_REVERSED  = True
 
+    # Insta360 frame: top half = FRONT (mapped to pan-tilt), bottom half = BACK
+    # Objects with cy < FRONT_Y_MAX are on the front side of the robot
+    INSTA_H        = 360
+    FRONT_Y_MAX    = 200   # pixels -- below this = front zone, above = back zone
+
     # Debug frame size
     DEBUG_W = 640;  DEBUG_H = 360  # each camera panel
 
@@ -260,14 +265,65 @@ class IBVSActionServer(Node):
         return dets, debug
 
     def _detect_insta(self, conf=None):
-        """Detect on Insta360. Returns (dets, raw_frame, annotated_frame)."""
+        """Detect on Insta360 using YOLO tracking (ByteTrack).
+        Returns (front_dets, back_dets, raw_frame, annotated_frame).
+        Detections sorted by tracker ID for consistent ordering."""
         frame = self._get_insta()
         if frame is None:
-            return [], None, None
+            return [], [], None, None
         c = conf or self.CONF_INSTA
         with self._yolo_lock:
-            dets, dbg = self._detect_raw(frame, c)
-        return dets, frame, dbg
+            # Use track() for ByteTrack assignment
+            try:
+                results = self.model.track(frame, verbose=False, conf=c,
+                                           persist=True, tracker='bytetrack.yaml')[0]
+            except Exception:
+                # Fallback to regular detect if tracker fails
+                results = self.model(frame, verbose=False, conf=c)[0]
+
+            debug = frame.copy()
+            front = []  # objects in front half
+            back  = []  # objects in back half
+            h, w  = frame.shape[:2]
+
+            for box in results.boxes:
+                x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
+                cx   = (x1 + x2) / 2.0
+                cy_b = (y1 + y2) / 2.0
+                c_   = float(box.conf[0])
+                tid  = int(box.id[0]) if box.id is not None else -1
+
+                is_front = cy_b < self.FRONT_Y_MAX
+                color    = (0, 255, 0) if is_front else (0, 100, 255)
+                label    = f'ID{tid} {c_:.2f}' + ('' if is_front else ' [BACK]')
+
+                cv2.rectangle(debug, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(debug, label, (x1, max(y1-5, 10)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
+                cv2.circle(debug, (int(cx), int(cy_b)), 5, (0, 0, 255), -1)
+
+                det = (cx, cy_b, x1, y1, x2, y2, c_, tid)
+                if is_front:
+                    front.append(det)
+                else:
+                    back.append(det)
+
+            # Draw front/back boundary line
+            cv2.line(debug, (0, self.FRONT_Y_MAX), (w, self.FRONT_Y_MAX), (0, 200, 255), 1)
+            cv2.putText(debug, 'FRONT', (w-65, self.FRONT_Y_MAX-5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 200, 255), 1)
+            cv2.putText(debug, 'BACK', (w-55, self.FRONT_Y_MAX+15),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 100, 255), 1)
+
+            # Crosshair
+            cv2.line(debug, (w//2, 0), (w//2, h), (80, 80, 200), 1)
+            cv2.line(debug, (0, h//2), (w, h//2), (80, 80, 200), 1)
+
+            # Sort front by track ID for consistent ordering
+            front.sort(key=lambda d: d[7] if d[7] >= 0 else d[6])
+            back.sort( key=lambda d: d[7] if d[7] >= 0 else d[6])
+
+        return front, back, frame, debug
 
     def _detect_logi(self, conf=None):
         """Detect on Logitech. Returns (dets, raw_frame, annotated_frame)."""
@@ -354,31 +410,33 @@ class IBVSActionServer(Node):
     # ---- Stage 1: search Insta360 -------------------------------------------
 
     def _search_insta(self, goal_handle):
-        """Search Insta360 up to 20s. Returns first detection (cx, cy, conf) or None."""
+        """Search Insta360 up to 20s.
+        Returns (front_dets, back_dets) or (None, None) on timeout."""
         self._mode = 'DETECTING'
         self.get_logger().info(f'  Searching Insta360 (up to {self.INSTA_SEARCH_TIMEOUT}s)...')
         deadline = time.time() + self.INSTA_SEARCH_TIMEOUT
 
         while time.time() < deadline:
             if goal_handle.is_cancel_requested:
-                return None
+                return None, None
 
-            dets, _, insta_dbg = self._detect_insta()
-            logi_dbg = None
+            front, back, _, insta_dbg = self._detect_insta()
             logi_f = self._get_logi()
-            if logi_f is not None:
-                logi_dbg = logi_f.copy()
-            self._publish_debug(insta_dbg, logi_dbg)
+            self._publish_debug(insta_dbg, logi_f)
 
-            if dets:
-                cx, cy, _, _, _, _, conf = dets[0]
-                self.get_logger().info(f'  Object found on Insta360: cx={cx:.0f} cy={cy:.0f} conf={conf:.2f}')
-                return cx, cy, conf
+            if front or back:
+                n_front = len(front)
+                n_back  = len(back)
+                self.get_logger().info(
+                    f'  Detected: {n_front} front object(s), {n_back} back object(s)')
+                if back and not front:
+                    self.get_logger().info('  All objects in BACK -- signalling BT to rotate')
+                return front, back
 
             time.sleep(0.1)
 
-        self.get_logger().warn('  No object found on Insta360 within timeout')
-        return None
+        self.get_logger().warn('  No objects found on Insta360 within timeout')
+        return None, None
 
     # ---- Stage 2: IBVS on Logitech ------------------------------------------
 
@@ -523,11 +581,13 @@ class IBVSActionServer(Node):
         max_obj  = goal_handle.request.max_objects
         ret_home = goal_handle.request.return_home
 
-        def abort(reason):
+        def abort(reason, in_back=False, found=0):
             self._mode        = 'IDLE'
             self._goal_active = False
             result.success           = False
             result.objects_inspected = 0
+            result.objects_found     = found
+            result.object_in_back    = in_back
             result.failed_reason     = reason
             if ret_home:
                 self._home()
@@ -535,60 +595,90 @@ class IBVSActionServer(Node):
             return result
 
         # ---- Stage 1: detect on Insta360 ----
-        found = self._search_insta(goal_handle)
-        if found is None:
+        front_dets, back_dets = self._search_insta(goal_handle)
+
+        if front_dets is None and back_dets is None:
             return abort('no_detection')
 
-        cx_obj, cy_obj, conf = found
+        total_found = len(front_dets or []) + len(back_dets or [])
 
-        # ---- Coarse positioning ----
-        self._mode = 'COARSE'
-        pan_c  = calculate_pan(cx_obj, cy_obj)
-        tilt_c = calculate_tilt(cx_obj, cy_obj)
-        self._servo(tilt_c, pan_c)
-        self.get_logger().info(f'  Coarse move: pan={pan_c:.1f} tilt={tilt_c:.1f} -- waiting {self.COARSE_WAIT}s')
+        # If only back objects found, signal BT to rotate robot
+        if not front_dets and back_dets:
+            return abort('all_in_back', in_back=True, found=total_found)
 
-        # Show debug while waiting for servo
-        t_wait = time.time()
-        while time.time() - t_wait < self.COARSE_WAIT:
-            _, _, insta_dbg = self._detect_insta()
-            logi_f = self._get_logi()
-            self._publish_debug(insta_dbg, logi_f)
-            time.sleep(0.1)
+        # Limit to max_objects if specified
+        if max_obj > 0:
+            front_dets = front_dets[:max_obj]
 
-        # ---- Stage 2: Wait for first detection in Logitech ----
-        self.get_logger().info(f'  Waiting up to {self.LOGI_FIRST_DET_WAIT}s for object in Logitech...')
-        self._mode = 'IBVS'
-        deadline   = time.time() + self.LOGI_FIRST_DET_WAIT
-        first_det  = False
-        _, _, insta_dbg_frozen = self._detect_insta()
+        self.get_logger().info(
+            f'  Processing {len(front_dets)} front object(s) in order')
+        if back_dets:
+            self.get_logger().info(
+                f'  {len(back_dets)} back object(s) noted -- will signal BT after front done')
 
-        while time.time() < deadline:
+        n_inspected = 0
+        for obj_idx, det in enumerate(front_dets, start=1):
             if goal_handle.is_cancel_requested:
-                return abort('cancelled')
-            dets, _, logi_dbg = self._detect_logi()
-            self._publish_debug(insta_dbg_frozen, logi_dbg)
-            if dets:
-                first_det = True
-                self.get_logger().info('  Object visible in Logitech -- starting IBVS')
                 break
-            time.sleep(0.1)
 
-        if not first_det:
-            self.get_logger().warn('  Object not visible in Logitech -- coarse calibration may need retuning')
-            return abort('logi_no_detection')
+            cx_obj, cy_obj, *_, conf, tid = det
+            self.get_logger().info(
+                f'Object {obj_idx}/{len(front_dets)}: cx={cx_obj:.0f} cy={cy_obj:.0f} '
+                f'conf={conf:.2f} track_id={tid}')
 
-        # ---- IBVS ----
-        centred = self._ibvs(goal_handle, pan_c, tilt_c, feedback, 1)
+            # ---- Coarse positioning ----
+            self._mode = 'COARSE'
+            pan_c  = calculate_pan(cx_obj, cy_obj)
+            tilt_c = calculate_tilt(cx_obj, cy_obj)
+            self._servo(tilt_c, pan_c)
+            self.get_logger().info(
+                f'  Coarse: pan={pan_c:.1f} tilt={tilt_c:.1f} -- waiting {self.COARSE_WAIT}s')
 
-        if not centred:
-            return abort('ibvs_timeout')
+            t_wait = time.time()
+            while time.time() - t_wait < self.COARSE_WAIT:
+                _, _, _, insta_dbg = self._detect_insta()
+                logi_f = self._get_logi()
+                self._publish_debug(insta_dbg, logi_f)
+                time.sleep(0.1)
 
-        # ---- Capture ----
-        self._mode = 'CAPTURING'
-        self.get_logger().info('  Capturing images...')
-        imgs = self._capture(self.IMAGES_PER_OBJ)
-        self._mqtt(imgs, 1)
+            # ---- Wait for first detection in Logitech ----
+            self.get_logger().info(
+                f'  Waiting up to {self.LOGI_FIRST_DET_WAIT}s for object in Logitech...')
+            self._mode = 'IBVS'
+            deadline   = time.time() + self.LOGI_FIRST_DET_WAIT
+            first_det  = False
+            _, _, _, insta_dbg_frozen = self._detect_insta()
+
+            while time.time() < deadline:
+                if goal_handle.is_cancel_requested:
+                    return abort('cancelled', found=total_found)
+                logi_dets, _, logi_dbg = self._detect_logi()
+                self._publish_debug(insta_dbg_frozen, logi_dbg)
+                if logi_dets:
+                    first_det = True
+                    self.get_logger().info('  Object visible in Logitech -- starting IBVS')
+                    break
+                time.sleep(0.1)
+
+            if not first_det:
+                self.get_logger().warn(
+                    f'  Object {obj_idx} not visible in Logitech -- skipping')
+                continue  # try next object, don't abort entire run
+
+            # ---- IBVS ----
+            feedback.current_object = obj_idx
+            centred = self._ibvs(goal_handle, pan_c, tilt_c, feedback, obj_idx)
+
+            if not centred:
+                self.get_logger().warn(f'  Object {obj_idx} IBVS did not converge -- skipping')
+                continue  # try next object
+
+            # ---- Capture ----
+            self._mode = 'CAPTURING'
+            imgs = self._capture(self.IMAGES_PER_OBJ)
+            self._mqtt(imgs, obj_idx)
+            n_inspected += 1
+            self.get_logger().info(f'  Object {obj_idx} done ({n_inspected} total)')
 
         # ---- Done ----
         self._mode        = 'IDLE'
@@ -596,11 +686,15 @@ class IBVSActionServer(Node):
         if ret_home:
             self._home()
 
-        result.success           = True
-        result.objects_inspected = 1
-        result.failed_reason     = ''
+        result.success           = n_inspected > 0
+        result.objects_inspected = n_inspected
+        result.objects_found     = total_found
+        result.object_in_back    = len(back_dets) > 0
+        result.failed_reason     = '' if n_inspected > 0 else 'ibvs_timeout'
         goal_handle.succeed()
-        self.get_logger().info('Inspection complete')
+        self.get_logger().info(
+            f'Inspection complete: {n_inspected}/{len(front_dets)} front objects. '
+            f'Back objects signalled: {len(back_dets)}')
         return result
 
 

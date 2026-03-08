@@ -43,7 +43,7 @@ bool clearingCloud = false;
 bool useSorting = false;
 double quantileZ = 0.25;
 double vehicleHeight = 1.5;
-int voxelPointUpdateThre = 10;
+int voxelPointUpdateThre = 100;
 double voxelTimeUpdateThre = 2.0;
 double lowerBoundZ = -1.5;
 double upperBoundZ = 1.0;
@@ -236,7 +236,7 @@ int main(int argc, char** argv)
   std::vector<int> pointIdxNKNSearch;
   std::vector<float> pointNKNSquaredDistance;
 
-  rclcpp::Rate rate(10);
+  rclcpp::Rate rate(100);
   bool status = rclcpp::ok();
   while (status)
   {

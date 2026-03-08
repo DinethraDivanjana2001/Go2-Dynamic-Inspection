@@ -10,8 +10,7 @@ import launch_ros
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('use_sim_time', default_value='false'),
-        SetParameter(name='use_sim_time', value=LaunchConfiguration('use_sim_time')),
+        SetParameter(name='use_sim_time', value='false'),
         DeclareLaunchArgument('config', default_value='default'),
 
         Node(
@@ -48,10 +47,5 @@ def generate_launch_description():
                 '.rviz"'])
             ],
             respawn=False,
-        ),
-
-        # Including another launch file
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource([get_package_share_directory('graph_decoder'), '/launch/decoder.launch'])
         )
     ])

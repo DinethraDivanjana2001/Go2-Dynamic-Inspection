@@ -4,9 +4,9 @@ far_planner:
     main_run_freq: 2.5 # [Hz] How often the *planner* runs (replan rate).
     voxel_dim: 0.08  # Unit: meter. Smaller → sharper obstacle detail but heavier CPU/memory. (was 0.15, reduced for small obstacles)
     robot_dim: 0.4   # Unit: meter. Collision *inflation radius* (effective robot "circle") used for planning.
-    vehicle_height: 0.3  # Unit: meter. Height of the robot base/sensor above ground used in terrain checks.
+    vehicle_height: 0.5  # Unit: meter. Height of the robot base/sensor above ground used in terrain checks.
     sensor_range: 30.0  # Unit: meter. Max range of points used from the depth/LiDAR stream for mapping/planning.
-    terrain_range: 15.0  # Unit: meter. Radius around the robot within which terrain analysis/costs are computed/maintained.
+    terrain_range: 6.0  # Unit: meter. Radius around the robot within which terrain analysis/costs are computed/maintained.
     local_planner_range: 5.0   # Unit: meter. Look-ahead radius/window for the local planner's search.
     visualize_ratio: 0.75
     is_viewpoint_extend: true

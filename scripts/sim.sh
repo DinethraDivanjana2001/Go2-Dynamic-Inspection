@@ -30,7 +30,7 @@ WORKSPACE_ROOT="$(dirname "$SCRIPT_DIR")"
 export CYCLONEDDS_URI="file://${SCRIPT_DIR}/cyclonedds.xml"
 
 # Default values
-WORLD_FILE="/home/yasiru/world2.world"
+WORLD_FILE="/home/yasiru/factory.world"
 GAZEBO_WAIT_TIME=15
 SKIP_GAZEBO=false
 LAUNCH_FILE="pipeline_real.launch.py"

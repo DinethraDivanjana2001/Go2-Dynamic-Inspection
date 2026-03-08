@@ -28,10 +28,10 @@ def generate_launch_description():
                 '.yaml"'])
             ],
             remappings=[
-                ('/odom_world', '/state_estimation'),
+                ('/odom_world', '/lidar_odometry/pose'),
                 ('/terrain_cloud', '/terrain_map_ext'),
-                ('/scan_cloud', '/terrain_map'),
-                ('/terrain_local_cloud', '/dlio/map_node/map')
+                ('/terrain_local_cloud', '/terrain_map'),
+                ('/scan_cloud', '/lidar_odometry/deskewed_scan_points')
             ]
         ),
         

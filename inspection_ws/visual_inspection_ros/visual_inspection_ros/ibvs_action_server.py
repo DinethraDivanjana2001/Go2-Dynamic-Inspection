@@ -128,7 +128,9 @@ class IBVSActionServer(Node):
     DEADBAND_PX     = 2.0    # don't move if error < this
     IBVS_TOL_PX     = 10.0   # converged when error < this
     IBVS_MAX_ITER   = 200
-    SERVO_DELAY     = 0.01   # seconds between servo commands
+    IBVS_CONF       = 0.3    # lower conf for IBVS (object may be partially occluded)
+    SERVO_DELAY     = 0.033  # seconds between servo commands (~30Hz)
+    IBVS_FIRST_DET_TIMEOUT = 5.0  # seconds to wait for first detection in Logitech
 
     # Logitech frame centre (640x480)
     CX_LOGI         = 320.0
@@ -138,7 +140,7 @@ class IBVSActionServer(Node):
 
     IMAGES_PER_OBJ  = 4
     CAPTURE_DELAY   = 0.5
-    RECENTER_WAIT   = 1.0    # wait after coarse move before IBVS
+    RECENTER_WAIT   = 2.0    # wait after coarse move for servos to reach position
 
     def __init__(self):
         super().__init__('ibvs_action_server')
@@ -225,11 +227,9 @@ class IBVSActionServer(Node):
     # ---- Continuous debug timer --------------------------------------------
 
     def _debug_timer_cb(self):
-        """Runs at 2Hz -- publishes debug images to RViz even without active goal."""
-        if self._goal_active:
-            return  # goal is running its own detection loop
+        """Runs at 2Hz -- always publishes debug images to RViz."""
         if not self._yolo_lock.acquire(blocking=False):
-            return  # YOLO busy
+            return  # YOLO busy with goal, skip this tick
         try:
             insta_frame = self._get_insta_frame()
             logi_frame  = self._get_logi_frame()
@@ -329,11 +329,30 @@ class IBVSActionServer(Node):
 
         dt = self.SERVO_DELAY + 0.033  # approx frame interval
 
+        # ---- Wait for first detection in Logitech (servo still moving) ----
+        self.get_logger().info(f'  Waiting up to {self.IBVS_FIRST_DET_TIMEOUT}s for object in Logitech...')
+        deadline = time.time() + self.IBVS_FIRST_DET_TIMEOUT
+        first_det = False
+        while time.time() < deadline:
+            if goal_handle.is_cancel_requested:
+                return False
+            dets, _ = self._detect_logi(conf=self.IBVS_CONF)
+            if dets:
+                first_det = True
+                self.get_logger().info('  Object found in Logitech -- starting IBVS loop')
+                break
+            time.sleep(0.1)
+
+        if not first_det:
+            self.get_logger().warn('  Object not visible in Logitech after coarse move -- calibration may need re-tuning')
+            return False
+
+        # ---- IBVS loop ----
         for i in range(self.IBVS_MAX_ITER):
             if goal_handle.is_cancel_requested:
                 return False
 
-            dets, _ = self._detect_logi()
+            dets, _ = self._detect_logi(conf=self.IBVS_CONF)
             if not dets:
                 self.get_logger().warn(f'  IBVS iter {i}: object lost in Logitech')
                 time.sleep(self.SERVO_DELAY)
@@ -363,7 +382,7 @@ class IBVSActionServer(Node):
             if abs(theta_y) < self.DEADBAND_PX / self.FY_LOGI:
                 theta_y = 0.0
 
-            # Sequential: fix pan first
+            # Sequential: fix pan first, then tilt
             if abs(ex) > self.SLOW_ZONE_PX:
                 theta_y = 0.0
                 integral_tilt = 0.0

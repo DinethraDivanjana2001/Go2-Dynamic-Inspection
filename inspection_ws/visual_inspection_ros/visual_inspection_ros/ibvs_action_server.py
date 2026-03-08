@@ -122,6 +122,9 @@ class IBVSActionServer(Node):
     IMAGES_PER_OBJ = 4
     CAPTURE_DELAY  = 0.5
 
+    # Tilt servo mounted in reverse -- flip to 180-tilt
+    TILT_REVERSED  = True
+
     # Debug frame size
     DEBUG_W = 640;  DEBUG_H = 360  # each camera panel
 
@@ -214,9 +217,10 @@ class IBVSActionServer(Node):
     # ---- Servo helpers -------------------------------------------------------
 
     def _servo(self, tilt, pan):
-        # Tilt is hardware-inverted (servo mounted in reverse direction)
+        """Send servo command. Tilt is flipped if TILT_REVERSED."""
+        t = 180 - clamp(tilt) if self.TILT_REVERSED else clamp(tilt)
         msg = Int16MultiArray()
-        msg.data = [clamp(180 - tilt), clamp(pan)]
+        msg.data = [t, clamp(pan)]
         self.servo_pub.publish(msg)
 
     def _home(self):

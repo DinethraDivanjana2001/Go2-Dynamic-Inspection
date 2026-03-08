@@ -27,7 +27,8 @@ from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from sensor_msgs.msg import Image
-from std_msgs.msg import Int16MultiArray
+from std_msgs.msg import Int16MultiArray, String
+from geometry_msgs.msg import Point
 from cv_bridge import CvBridge
 
 from visual_inspection_interfaces.action import InspectObjects
@@ -37,6 +38,10 @@ import numpy as np
 import time
 import os
 import threading
+import json
+import yaml
+from pathlib import Path
+from datetime import datetime
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +97,8 @@ def load_yolo(engine_path):
 class IBVSActionServer(Node):
 
     # Paths
-    ENGINE_PATH = os.path.expanduser('~/Documents/Visual_Inspection_ws/weights/yolo11n.engine')
+    ENGINE_PATH     = os.path.expanduser('~/Documents/Visual_Inspection_ws/weights/yolo11n.engine')
+    MQTT_CFG_PATH   = os.path.expanduser('~/Documents/Visual_Inspection_ws/config/mqtt_config.yaml')
 
     # YOLO confidence
     CONF_INSTA  = 0.5   # coarse detection
@@ -151,8 +157,14 @@ class IBVSActionServer(Node):
                                  self._cb_logi,  10, callback_group=self.cb_group)
 
         # Publishers
-        self.servo_pub = self.create_publisher(Int16MultiArray, '/servo/pan_tilt', 10)
-        self.debug_pub = self.create_publisher(Image, '/visual_inspection/debug', 10)
+        self.servo_pub      = self.create_publisher(Int16MultiArray, '/servo/pan_tilt', 10)
+        self.debug_pub      = self.create_publisher(Image,           '/visual_inspection/debug', 10)
+        self.status_pub     = self.create_publisher(String,          '/visual_inspection/status', 10)
+        self.ibvs_err_pub   = self.create_publisher(Point,           '/visual_inspection/ibvs_error', 10)
+        self.detections_pub = self.create_publisher(String,          '/visual_inspection/detections', 10)
+
+        # MQTT config
+        self._mqtt_cfg = self._load_mqtt_cfg()
 
         # YOLO
         self.get_logger().info('Loading YOLO model...')
@@ -188,6 +200,9 @@ class IBVSActionServer(Node):
 
         self.get_logger().info('Action server ready at /visual_inspection/inspect_objects')
         self.get_logger().info('Debug topic: /visual_inspection/debug  (add Image in RViz2)')
+        self.get_logger().info('Status topics: /visual_inspection/status  /visual_inspection/ibvs_error  /visual_inspection/detections')
+        broker = self._mqtt_cfg.get('broker', 'localhost')
+        self.get_logger().info(f'MQTT broker: {broker}:{self._mqtt_cfg.get("port", 1883)}')
 
     # ---- Camera callbacks ---------------------------------------------------
 
@@ -209,7 +224,25 @@ class IBVSActionServer(Node):
         with self._lock_logi:
             return self._frame_logi.copy() if self._frame_logi is not None else None
 
-    # ---- Goal / cancel ------------------------------------------------------
+    # ---- MQTT config loader -------------------------------------------------
+
+    def _load_mqtt_cfg(self):
+        try:
+            with open(self.MQTT_CFG_PATH) as f:
+                cfg = yaml.safe_load(f)
+            self.get_logger().info(f'MQTT config loaded: {self.MQTT_CFG_PATH}')
+            return cfg
+        except Exception as e:
+            self.get_logger().warn(f'MQTT config not found ({e}) -- using localhost defaults')
+            return {
+                'broker': 'localhost', 'port': 1883,
+                'access_token': '', 'topic': 'visual_inspection/images',
+                'timeout': 10, 'qos': 1, 'tls': False,
+                'jpeg_quality': 85,
+                'capture_dir': '~/Documents/Visual_Inspection_ws/captures'
+            }
+
+    # ---- Goal / cancel -------------------------------------------------------
 
     def goal_callback(self, goal_request):
         self.get_logger().info('Goal received')
@@ -540,35 +573,120 @@ class IBVSActionServer(Node):
         self.get_logger().warn(f'  IBVS timeout after {self.IBVS_TOTAL_TIMEOUT}s')
         return False
 
-    # ---- Image capture -------------------------------------------------------
+    # ---- Image capture (local save) ----------------------------------------
 
-    def _capture(self, n=4):
-        imgs = []
+    def _capture(self, n=4, obj_id=1, session_ts=''):
+        """Capture n images from Logitech, save to local capture dir.
+        Returns list of saved file paths."""
+        cap_dir = Path(
+            os.path.expanduser(self._mqtt_cfg.get('capture_dir',
+                '~/Documents/Visual_Inspection_ws/captures'))
+        ) / session_ts / f'object_{obj_id}'
+        cap_dir.mkdir(parents=True, exist_ok=True)
+
+        paths = []
         for i in range(n):
             f = self._get_logi()
             if f is not None:
-                imgs.append(f.copy())
-                self.get_logger().info(f'  Captured {i+1}/{n}')
+                fpath = cap_dir / f'img_{i+1:02d}.jpg'
+                q = self._mqtt_cfg.get('jpeg_quality', 85)
+                cv2.imwrite(str(fpath), f, [cv2.IMWRITE_JPEG_QUALITY, q])
+                paths.append(fpath)
+                self.get_logger().info(f'  Saved {fpath.name}')
             time.sleep(self.CAPTURE_DELAY)
-        return imgs
+        return paths
 
-    # ---- MQTT ----------------------------------------------------------------
+    # ---- MQTT (ThingsBoard token auth) + local cleanup ----------------------
 
-    def _mqtt(self, images, obj_id):
+    def _mqtt(self, image_paths, obj_id, session_ts=''):
+        """Upload images via MQTT. Deletes local files on success.
+        Uses ThingsBoard-style auth: username=access_token, password=empty."""
         try:
-            import paho.mqtt.client as mqtt, base64, json
+            import paho.mqtt.client as mqtt
+            cfg      = self._mqtt_cfg
+            broker   = cfg.get('broker', 'localhost')
+            port     = cfg.get('port', 1883)
+            token    = cfg.get('access_token', '')
+            topic    = cfg.get('topic', 'v1/devices/me/telemetry')
+            timeout  = cfg.get('timeout', 10)
+            qos      = cfg.get('qos', 1)
+            q_jpg    = cfg.get('jpeg_quality', 85)
+
             client = mqtt.Client()
-            client.connect('localhost', 1883, timeout=5)
-            for i, img in enumerate(images):
-                _, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                client.publish(f'visual_inspection/object_{obj_id}/images',
-                               json.dumps({'object_id': obj_id, 'image_idx': i,
-                                           'timestamp': time.time(),
-                                           'image_b64': base64.b64encode(buf.tobytes()).decode()}))
+            if token:
+                client.username_pw_set(token, '')  # ThingsBoard: token as username
+            client.connect(broker, port, timeout=timeout)
+            client.loop_start()
+
+            sent = 0
+            for i, fpath in enumerate(image_paths):
+                img = cv2.imread(str(fpath))
+                if img is None:
+                    continue
+                _, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, q_jpg])
+                import base64
+                payload = json.dumps({
+                    'session':     session_ts,
+                    'object_id':   obj_id,
+                    'image_idx':   i + 1,
+                    'total':       len(image_paths),
+                    'timestamp':   time.time(),
+                    'image_b64':   base64.b64encode(buf.tobytes()).decode()
+                })
+                result = client.publish(topic, payload, qos=qos)
+                result.wait_for_publish(timeout=5)
+                sent += 1
+                self.get_logger().info(f'  MQTT sent {i+1}/{len(image_paths)} -- obj {obj_id}')
+
+            client.loop_stop()
             client.disconnect()
-            self.get_logger().info(f'  MQTT: {len(images)} images published')
+            self.get_logger().info(f'  MQTT: {sent}/{len(image_paths)} images sent to {broker}')
+
+            # Delete local files after successful send
+            if sent == len(image_paths):
+                for fpath in image_paths:
+                    try:
+                        os.remove(fpath)
+                    except Exception:
+                        pass
+                self.get_logger().info('  Local captures deleted (MQTT success)')
+                # Remove empty dirs
+                try:
+                    fpath.parent.rmdir()    # object_N dir
+                    fpath.parent.parent.rmdir()  # session dir
+                except Exception:
+                    pass
+            return sent == len(image_paths)
+
         except Exception as e:
-            self.get_logger().warn(f'  MQTT skipped: {e}')
+            self.get_logger().warn(f'  MQTT failed: {e} -- images kept locally')
+            return False
+
+    # ---- Status topic helpers -----------------------------------------------
+
+    def _pub_status(self, mode: str):
+        self._mode = mode
+        self.status_pub.publish(String(data=mode))
+
+    def _pub_detections(self, front, back):
+        """Publish JSON list of detected objects to /visual_inspection/detections."""
+        payload = json.dumps({
+            'timestamp': time.time(),
+            'front': [{'cx': d[0], 'cy': d[1], 'conf': d[6], 'track_id': d[7]}
+                       for d in front],
+            'back':  [{'cx': d[0], 'cy': d[1], 'conf': d[6], 'track_id': d[7]}
+                       for d in back],
+        })
+        self.detections_pub.publish(String(data=payload))
+
+    def _pub_ibvs_error(self, ex: float, ey: float):
+        """Publish IBVS pixel error to /visual_inspection/ibvs_error."""
+        p = Point()
+        p.x = float(ex)
+        p.y = float(ey)
+        p.z = float((ex**2 + ey**2) ** 0.5)  # total error magnitude
+        self.ibvs_err_pub.publish(p)
+
 
     # ---- Main execute --------------------------------------------------------
 
@@ -582,7 +700,7 @@ class IBVSActionServer(Node):
         ret_home = goal_handle.request.return_home
 
         def abort(reason, in_back=False, found=0):
-            self._mode        = 'IDLE'
+            self._pub_status('IDLE')
             self._goal_active = False
             result.success           = False
             result.objects_inspected = 0
@@ -601,6 +719,10 @@ class IBVSActionServer(Node):
             return abort('no_detection')
 
         total_found = len(front_dets or []) + len(back_dets or [])
+        session_ts  = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        # Publish detections JSON
+        self._pub_detections(front_dets or [], back_dets or [])
 
         # If only back objects found, signal BT to rotate robot
         if not front_dets and back_dets:
@@ -627,7 +749,7 @@ class IBVSActionServer(Node):
                 f'conf={conf:.2f} track_id={tid}')
 
             # ---- Coarse positioning ----
-            self._mode = 'COARSE'
+            self._pub_status('COARSE')
             pan_c  = calculate_pan(cx_obj, cy_obj)
             tilt_c = calculate_tilt(cx_obj, cy_obj)
             self._servo(tilt_c, pan_c)
@@ -644,7 +766,7 @@ class IBVSActionServer(Node):
             # ---- Wait for first detection in Logitech ----
             self.get_logger().info(
                 f'  Waiting up to {self.LOGI_FIRST_DET_WAIT}s for object in Logitech...')
-            self._mode = 'IBVS'
+            self._pub_status('IBVS')
             deadline   = time.time() + self.LOGI_FIRST_DET_WAIT
             first_det  = False
             _, _, _, insta_dbg_frozen = self._detect_insta()
@@ -674,14 +796,14 @@ class IBVSActionServer(Node):
                 continue  # try next object
 
             # ---- Capture ----
-            self._mode = 'CAPTURING'
-            imgs = self._capture(self.IMAGES_PER_OBJ)
-            self._mqtt(imgs, obj_idx)
+            self._pub_status('CAPTURING')
+            paths = self._capture(self.IMAGES_PER_OBJ, obj_id=obj_idx, session_ts=session_ts)
+            self._mqtt(paths, obj_idx, session_ts=session_ts)
             n_inspected += 1
             self.get_logger().info(f'  Object {obj_idx} done ({n_inspected} total)')
 
         # ---- Done ----
-        self._mode        = 'IDLE'
+        self._pub_status('IDLE')
         self._goal_active = False
         if ret_home:
             self._home()

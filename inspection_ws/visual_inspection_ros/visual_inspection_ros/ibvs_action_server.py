@@ -491,7 +491,7 @@ class IBVSActionServer(Node):
         insta_dbg_cache = None  # freeze Insta360 side during IBVS
 
         # Cache last Insta360 debug frame
-        _, _, insta_dbg_cache = self._detect_insta()
+        _, _, _, insta_dbg_cache = self._detect_insta()
 
         deadline = start_time + self.IBVS_TOTAL_TIMEOUT
 

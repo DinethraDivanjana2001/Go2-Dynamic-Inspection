@@ -127,6 +127,9 @@ class IBVSActionServer(Node):
     # Capture
     IMAGES_PER_OBJ = 4
     CAPTURE_DELAY  = 0.5
+    FOCUS_WAIT     = 2.0   # seconds to wait after IBVS for autofocus before capture
+    KEEP_LOCAL     = True  # True = always keep images locally (dataset mode)
+                           # False = delete after successful MQTT send
 
     # Tilt servo mounted in reverse -- flip to 180-tilt
     TILT_REVERSED  = True
@@ -599,8 +602,11 @@ class IBVSActionServer(Node):
     # ---- MQTT (ThingsBoard token auth) + local cleanup ----------------------
 
     def _mqtt(self, image_paths, obj_id, session_ts=''):
-        """Upload images via MQTT. Deletes local files on success.
+        """Upload images via MQTT. Keeps local files if KEEP_LOCAL=True.
         Uses ThingsBoard-style auth: username=access_token, password=empty."""
+        if not image_paths:
+            self.get_logger().warn('  MQTT: no images to send')
+            return False
         try:
             import paho.mqtt.client as mqtt
             cfg      = self._mqtt_cfg
@@ -612,6 +618,7 @@ class IBVSActionServer(Node):
             qos      = cfg.get('qos', 1)
             q_jpg    = cfg.get('jpeg_quality', 85)
 
+            self.get_logger().info(f'  MQTT connecting to {broker}:{port}...')
             client = mqtt.Client()
             if token:
                 client.username_pw_set(token, '')  # ThingsBoard: token as username
@@ -622,6 +629,7 @@ class IBVSActionServer(Node):
             for i, fpath in enumerate(image_paths):
                 img = cv2.imread(str(fpath))
                 if img is None:
+                    self.get_logger().warn(f'  MQTT: cannot read {fpath}')
                     continue
                 _, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, q_jpg])
                 import base64
@@ -634,28 +642,35 @@ class IBVSActionServer(Node):
                     'image_b64':   base64.b64encode(buf.tobytes()).decode()
                 })
                 result = client.publish(topic, payload, qos=qos)
-                result.wait_for_publish(timeout=5)
+                # wait_for_publish() timeout arg only in paho-mqtt >= 2.x
+                try:
+                    result.wait_for_publish(timeout=5)
+                except TypeError:
+                    result.wait_for_publish()  # paho-mqtt 1.x fallback
                 sent += 1
-                self.get_logger().info(f'  MQTT sent {i+1}/{len(image_paths)} -- obj {obj_id}')
+                self.get_logger().info(f'  MQTT sent {i+1}/{len(image_paths)} (obj {obj_id})')
 
             client.loop_stop()
             client.disconnect()
-            self.get_logger().info(f'  MQTT: {sent}/{len(image_paths)} images sent to {broker}')
+            self.get_logger().info(
+                f'  MQTT done: {sent}/{len(image_paths)} images to {broker}')
 
-            # Delete local files after successful send
-            if sent == len(image_paths):
+            # Delete local files only if KEEP_LOCAL is False
+            if not self.KEEP_LOCAL and sent == len(image_paths):
                 for fpath in image_paths:
                     try:
                         os.remove(fpath)
                     except Exception:
                         pass
-                self.get_logger().info('  Local captures deleted (MQTT success)')
-                # Remove empty dirs
+                self.get_logger().info('  Local captures deleted (MQTT success, KEEP_LOCAL=False)')
                 try:
-                    fpath.parent.rmdir()    # object_N dir
-                    fpath.parent.parent.rmdir()  # session dir
+                    image_paths[0].parent.rmdir()
+                    image_paths[0].parent.parent.rmdir()
                 except Exception:
                     pass
+            elif self.KEEP_LOCAL:
+                self.get_logger().info(
+                    f'  Images kept locally (KEEP_LOCAL=True): {image_paths[0].parent}')
             return sent == len(image_paths)
 
         except Exception as e:
@@ -795,9 +810,12 @@ class IBVSActionServer(Node):
                 self.get_logger().warn(f'  Object {obj_idx} IBVS did not converge -- skipping')
                 continue  # try next object
 
-            # ---- Capture ----
+            # ---- Capture (wait for autofocus first) ----
             self._pub_status('CAPTURING')
+            self.get_logger().info(f'  Waiting {self.FOCUS_WAIT}s for autofocus...')
+            time.sleep(self.FOCUS_WAIT)
             paths = self._capture(self.IMAGES_PER_OBJ, obj_id=obj_idx, session_ts=session_ts)
+            self.get_logger().info(f'  Captured {len(paths)}/{self.IMAGES_PER_OBJ} images')
             self._mqtt(paths, obj_idx, session_ts=session_ts)
             n_inspected += 1
             self.get_logger().info(f'  Object {obj_idx} done ({n_inspected} total)')

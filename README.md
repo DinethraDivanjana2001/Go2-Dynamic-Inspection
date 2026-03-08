@@ -113,6 +113,18 @@ The terrain analysis nodes require tuning based on your robot's physical dimensi
 <param name="terrainUnderVehicle" value="-BASE_LINK_HEIGHT - 0.1" />
 ```
 
+### Slope Analysis
+
+Slope is the nature of the slope.
+
+<p align="center">
+  <img src="docs/images/slope.png" alt="Slope Nature" width="800" />
+</p>
+
+<p align="center">
+  <img src="docs/images/far_planner_slope_graph.png" alt="Far Planner Slope Graph" width="800" />
+</p>
+
 ---
 
 ## Visualization
@@ -126,7 +138,7 @@ The terrain analysis nodes require tuning based on your robot's physical dimensi
 ### Visibility Graph (CUDA-Accelerated)
 
 <p align="center">
-  <img src="docs/images/image.png" alt="Visibility Graph" width="800" />
+  <img src="docs/images/Far_planner_in_action.png" alt="Far Planner in Action" width="800" />
 </p>
 
 The cyan lines show the **visibility graph** - navigation nodes that can "see" each other without obstacles. This computation is **GPU-accelerated** for real-time performance.
@@ -194,6 +206,10 @@ cd Go2_planner_suite
 ```
 
 ### Map Creation
+
+<p align="center">
+  <img src="docs/images/mapping_tool.png" alt="Mapping Tool" width="800" />
+</p>
 
 ```bash
 MOLA_USE_FIXED_LIDAR_POSE=true \

@@ -588,13 +588,13 @@ class IBVSActionServer(Node):
     # ---- Image capture (local save) ----------------------------------------
 
     def _capture(self, n=4, obj_id=1, session_ts='', cls_name='object'):
-        """Capture n images from Logitech, save to local capture dir.
-        Folder: captures/session_ts/cls_name/object_N/
+        """Capture n images from Logitech, save to inspection/ folder.
+        Folder: captures/inspection/session_ts/cls_name/instance_N/
         Returns list of saved file paths."""
-        cap_dir = Path(
-            os.path.expanduser(self._mqtt_cfg.get('capture_dir',
-                '~/Documents/Visual_Inspection_ws/captures'))
-        ) / session_ts / cls_name / f'instance_{obj_id}'
+        base = Path(os.path.expanduser(
+            self._mqtt_cfg.get('capture_dir', '~/Documents/Visual_Inspection_ws/captures')
+        ))
+        cap_dir = base / 'inspection' / session_ts / cls_name / f'instance_{obj_id}'
         cap_dir.mkdir(parents=True, exist_ok=True)
 
         paths = []
@@ -607,6 +607,35 @@ class IBVSActionServer(Node):
                 paths.append(fpath)
                 self.get_logger().info(f'  Saved {fpath.name}')
             time.sleep(self.CAPTURE_DELAY)
+        return paths
+
+    def _capture_insta_overview(self, session_ts, location_label, count=1,
+                                 folder='inspection', obj_cls='', obj_id=1):
+        """Capture Insta360 frames with YOLO drawn.
+        For ROI inspection: folder='inspection', saved alongside ROI images.
+        For BT overview request: folder='overview', standalone.
+        Returns list of saved file paths."""
+        base = Path(os.path.expanduser(
+            self._mqtt_cfg.get('capture_dir', '~/Documents/Visual_Inspection_ws/captures')
+        ))
+        if folder == 'inspection':
+            cap_dir = base / 'inspection' / session_ts / obj_cls / f'instance_{obj_id}'
+        else:
+            cap_dir = base / 'overview' / session_ts
+        cap_dir.mkdir(parents=True, exist_ok=True)
+
+        q = self._mqtt_cfg.get('jpeg_quality', 85)
+        paths = []
+        for i in range(count):
+            _, _, _, dbg = self._detect_insta()
+            if dbg is not None:
+                lbl = location_label.replace(' ', '_') or 'unknown'
+                fname = f'overview_{lbl}_{i+1:02d}.jpg'
+                fpath = cap_dir / fname
+                cv2.imwrite(str(fpath), dbg, [cv2.IMWRITE_JPEG_QUALITY, q])
+                paths.append(fpath)
+                self.get_logger().info(f'  Insta360 overview saved: {fpath.name}')
+            time.sleep(0.3)
         return paths
 
     # ---- MQTT (ThingsBoard token auth) + local cleanup ----------------------
@@ -724,8 +753,11 @@ class IBVSActionServer(Node):
 
         feedback = InspectObjects.Feedback()
         result   = InspectObjects.Result()
-        max_obj  = goal_handle.request.max_objects
-        ret_home = goal_handle.request.return_home
+        max_obj       = goal_handle.request.max_objects
+        ret_home      = goal_handle.request.return_home
+        overview_only = goal_handle.request.overview_only
+        location_label = goal_handle.request.location_label or 'unknown'
+        overview_count = goal_handle.request.overview_count or 2
 
         def abort(reason, in_back=False, found=0):
             self._pub_status('IDLE')
@@ -740,17 +772,32 @@ class IBVSActionServer(Node):
             goal_handle.abort()
             return result
 
-        # ---- Stage 1: detect on Insta360 ----
-        front_dets, back_dets = self._search_insta(goal_handle)
+        session_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-        if front_dets is None and back_dets is None:
-            return abort('no_detection')
+        # ── OVERVIEW-ONLY MODE: bypass IBVS, just capture Insta360 snapshots ──
+        if overview_only:
+            self.get_logger().info(
+                f'  Overview-only: capturing {overview_count} Insta360 frames '
+                f'(label: {location_label})')
+            self._pub_status('OVERVIEW')
+            feedback.current_step = 'overview'
+            goal_handle.publish_feedback(feedback)
+            paths = self._capture_insta_overview(
+                session_ts, location_label, count=overview_count, folder='overview')
+            self._mqtt(paths, obj_id=0, session_ts=session_ts, cls_name=location_label)
+            self._pub_status('IDLE')
+            self._goal_active = False
+            result.success           = len(paths) > 0
+            result.objects_inspected = 0
+            result.objects_found     = len(paths)
+            result.object_in_back    = False
+            result.failed_reason     = '' if paths else 'no_frames'
+            goal_handle.succeed()
+            return result
 
-        total_found = len(front_dets or []) + len(back_dets or [])
-        session_ts  = datetime.now().strftime('%Y%m%d_%H%M%S')
-
-        # Publish detections JSON
+        # ── FULL INSPECTION MODE ──────────────────────────────────────────────
         self._pub_detections(front_dets or [], back_dets or [])
+        total_found = len(front_dets or []) + len(back_dets or [])
 
         # If only back objects found, signal BT to rotate robot
         if not front_dets and back_dets:
@@ -827,10 +874,20 @@ class IBVSActionServer(Node):
             self._pub_status('CAPTURING')
             self.get_logger().info(f'  Waiting {self.FOCUS_WAIT}s for autofocus...')
             time.sleep(self.FOCUS_WAIT)
+
+            # Capture 4 Logitech ROI images
             paths = self._capture(self.IMAGES_PER_OBJ, obj_id=obj_idx,
                                   session_ts=session_ts, cls_name=cls_name)
-            self.get_logger().info(f'  Captured {len(paths)}/{self.IMAGES_PER_OBJ} images')
-            self._mqtt(paths, obj_idx, session_ts=session_ts, cls_name=cls_name)
+
+            # Also capture Insta360 overview with YOLO boxes
+            overview_paths = self._capture_insta_overview(
+                session_ts, location_label, count=1,
+                folder='inspection', obj_cls=cls_name, obj_id=obj_idx)
+
+            all_paths = paths + overview_paths
+            self.get_logger().info(
+                f'  Captured {len(paths)} ROI + {len(overview_paths)} overview = {len(all_paths)} total')
+            self._mqtt(all_paths, obj_idx, session_ts=session_ts, cls_name=cls_name)
             n_inspected += 1
             self.get_logger().info(f'  Object {obj_idx} done ({n_inspected} total)')
 

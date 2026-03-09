@@ -127,7 +127,7 @@ class IBVSActionServer(Node):
     # Capture
     IMAGES_PER_OBJ = 4
     CAPTURE_DELAY  = 0.5
-    FOCUS_WAIT     = 2.0   # seconds to wait after IBVS for autofocus before capture
+    FOCUS_WAIT     = 10.0  # seconds to wait after IBVS for autofocus before capture
     KEEP_LOCAL     = True  # True = always keep images locally (dataset mode)
                            # False = delete after successful MQTT send
 
@@ -271,7 +271,9 @@ class IBVSActionServer(Node):
     # ---- YOLO detection -----------------------------------------------------
 
     def _detect_raw(self, frame, conf):
-        """Run YOLO. Returns (detections, annotated_frame). Call with lock held."""
+        """Run YOLO. Returns (detections, annotated_frame). Call with lock held.
+        det tuple: (cx, cy, x1, y1, x2, y2, conf, cls_name)
+        """
         if self.model is None or frame is None:
             return [], frame.copy() if frame is not None else None
 
@@ -284,9 +286,11 @@ class IBVSActionServer(Node):
             cx = (x1 + x2) / 2.0
             cy = (y1 + y2) / 2.0
             c  = float(box.conf[0])
-            dets.append((cx, cy, x1, y1, x2, y2, c))
+            cls_id   = int(box.cls[0])
+            cls_name = results.names.get(cls_id, str(cls_id)) if hasattr(results, 'names') else str(cls_id)
+            dets.append((cx, cy, x1, y1, x2, y2, c, cls_name))
             cv2.rectangle(debug, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(debug, f'{c:.2f}', (x1, max(y1-5, 10)),
+            cv2.putText(debug, f'{cls_name} {c:.2f}', (x1, max(y1-5, 10)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
         dets.sort(key=lambda d: d[6], reverse=True)
@@ -327,18 +331,20 @@ class IBVSActionServer(Node):
                 cx   = (x1 + x2) / 2.0
                 cy_b = (y1 + y2) / 2.0
                 c_   = float(box.conf[0])
-                tid  = int(box.id[0]) if box.id is not None else -1
+                tid      = int(box.id[0]) if box.id is not None else -1
+                cls_id   = int(box.cls[0])
+                cls_name = results.names.get(cls_id, str(cls_id)) if hasattr(results, 'names') else str(cls_id)
 
                 is_front = cy_b < self.FRONT_Y_MAX
                 color    = (0, 255, 0) if is_front else (0, 100, 255)
-                label    = f'ID{tid} {c_:.2f}' + ('' if is_front else ' [BACK]')
+                label    = f'[{cls_name}] ID{tid} {c_:.2f}' + ('' if is_front else ' [BACK]')
 
                 cv2.rectangle(debug, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(debug, label, (x1, max(y1-5, 10)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
                 cv2.circle(debug, (int(cx), int(cy_b)), 5, (0, 0, 255), -1)
 
-                det = (cx, cy_b, x1, y1, x2, y2, c_, tid)
+                det = (cx, cy_b, x1, y1, x2, y2, c_, tid, cls_name)
                 if is_front:
                     front.append(det)
                 else:
@@ -369,12 +375,15 @@ class IBVSActionServer(Node):
         c = conf or self.CONF_IBVS
         with self._yolo_lock:
             dets, dbg = self._detect_raw(frame, c)
-            # Draw IBVS arrow if detection found
+            # Draw IBVS arrow + class label if detection found
             if dets:
                 h, w = frame.shape[:2]
                 cx_d, cy_d = int(dets[0][0]), int(dets[0][1])
                 cx_f, cy_f = w // 2, h // 2
                 cv2.arrowedLine(dbg, (cx_d, cy_d), (cx_f, cy_f), (255, 0, 0), 2)
+                cls_lbl = dets[0][7] if len(dets[0]) > 7 else ''
+                cv2.putText(dbg, str(cls_lbl), (cx_d+5, cy_d-8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1)
         return dets, frame, dbg
 
     # ---- Combined debug publisher -------------------------------------------
@@ -578,13 +587,14 @@ class IBVSActionServer(Node):
 
     # ---- Image capture (local save) ----------------------------------------
 
-    def _capture(self, n=4, obj_id=1, session_ts=''):
+    def _capture(self, n=4, obj_id=1, session_ts='', cls_name='object'):
         """Capture n images from Logitech, save to local capture dir.
+        Folder: captures/session_ts/cls_name/object_N/
         Returns list of saved file paths."""
         cap_dir = Path(
             os.path.expanduser(self._mqtt_cfg.get('capture_dir',
                 '~/Documents/Visual_Inspection_ws/captures'))
-        ) / session_ts / f'object_{obj_id}'
+        ) / session_ts / cls_name / f'instance_{obj_id}'
         cap_dir.mkdir(parents=True, exist_ok=True)
 
         paths = []
@@ -601,7 +611,7 @@ class IBVSActionServer(Node):
 
     # ---- MQTT (ThingsBoard token auth) + local cleanup ----------------------
 
-    def _mqtt(self, image_paths, obj_id, session_ts=''):
+    def _mqtt(self, image_paths, obj_id, session_ts='', cls_name='object'):
         """Upload images via MQTT. Keeps local files if KEEP_LOCAL=True.
         Uses ThingsBoard-style auth: username=access_token, password=empty."""
         if not image_paths:
@@ -634,12 +644,13 @@ class IBVSActionServer(Node):
                 _, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, q_jpg])
                 import base64
                 payload = json.dumps({
-                    'session':     session_ts,
-                    'object_id':   obj_id,
-                    'image_idx':   i + 1,
-                    'total':       len(image_paths),
-                    'timestamp':   time.time(),
-                    'image_b64':   base64.b64encode(buf.tobytes()).decode()
+                    'session':      session_ts,
+                    'object_id':    obj_id,
+                    'class_name':   cls_name,
+                    'image_idx':    i + 1,
+                    'total':        len(image_paths),
+                    'timestamp':    time.time(),
+                    'image_b64':    base64.b64encode(buf.tobytes()).decode()
                 })
                 result = client.publish(topic, payload, qos=qos)
                 # wait_for_publish() timeout arg only in paho-mqtt >= 2.x
@@ -687,9 +698,11 @@ class IBVSActionServer(Node):
         """Publish JSON list of detected objects to /visual_inspection/detections."""
         payload = json.dumps({
             'timestamp': time.time(),
-            'front': [{'cx': d[0], 'cy': d[1], 'conf': d[6], 'track_id': d[7]}
+            'front': [{'cx': d[0], 'cy': d[1], 'conf': d[6], 'track_id': d[7],
+                       'class': d[8] if len(d) > 8 else 'unknown'}
                        for d in front],
-            'back':  [{'cx': d[0], 'cy': d[1], 'conf': d[6], 'track_id': d[7]}
+            'back':  [{'cx': d[0], 'cy': d[1], 'conf': d[6], 'track_id': d[7],
+                       'class': d[8] if len(d) > 8 else 'unknown'}
                        for d in back],
         })
         self.detections_pub.publish(String(data=payload))
@@ -758,10 +771,10 @@ class IBVSActionServer(Node):
             if goal_handle.is_cancel_requested:
                 break
 
-            cx_obj, cy_obj, *_, conf, tid = det
+            cx_obj, cy_obj, *_, conf, tid, cls_name = det
             self.get_logger().info(
-                f'Object {obj_idx}/{len(front_dets)}: cx={cx_obj:.0f} cy={cy_obj:.0f} '
-                f'conf={conf:.2f} track_id={tid}')
+                f'Object {obj_idx}/{len(front_dets)}: [{cls_name}] cx={cx_obj:.0f} '
+                f'cy={cy_obj:.0f} conf={conf:.2f} track_id={tid}')
 
             # ---- Coarse positioning ----
             self._pub_status('COARSE')
@@ -814,9 +827,10 @@ class IBVSActionServer(Node):
             self._pub_status('CAPTURING')
             self.get_logger().info(f'  Waiting {self.FOCUS_WAIT}s for autofocus...')
             time.sleep(self.FOCUS_WAIT)
-            paths = self._capture(self.IMAGES_PER_OBJ, obj_id=obj_idx, session_ts=session_ts)
+            paths = self._capture(self.IMAGES_PER_OBJ, obj_id=obj_idx,
+                                  session_ts=session_ts, cls_name=cls_name)
             self.get_logger().info(f'  Captured {len(paths)}/{self.IMAGES_PER_OBJ} images')
-            self._mqtt(paths, obj_idx, session_ts=session_ts)
+            self._mqtt(paths, obj_idx, session_ts=session_ts, cls_name=cls_name)
             n_inspected += 1
             self.get_logger().info(f'  Object {obj_idx} done ({n_inspected} total)')
 

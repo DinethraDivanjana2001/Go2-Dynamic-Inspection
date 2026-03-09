@@ -796,12 +796,18 @@ class IBVSActionServer(Node):
             return result
 
         # ── FULL INSPECTION MODE ──────────────────────────────────────────────
+        front_dets, back_dets = self._search_insta(goal_handle)
+
+        if front_dets is None and back_dets is None:
+            return abort('no_detection')
+
         self._pub_detections(front_dets or [], back_dets or [])
         total_found = len(front_dets or []) + len(back_dets or [])
 
         # If only back objects found, signal BT to rotate robot
         if not front_dets and back_dets:
             return abort('all_in_back', in_back=True, found=total_found)
+
 
         # Limit to max_objects if specified
         if max_obj > 0:

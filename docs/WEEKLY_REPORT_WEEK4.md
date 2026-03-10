@@ -3,16 +3,11 @@
 
 ---
 
-## Slide 1: Last Week Recap — Pipeline Working, ROS2 Integration Goal
+## Slide 1: Last Week Recap — ROS2 Conversion This Week
 
-○ Previous weeks: standalone Python IBVS pipeline fully working on Jetson Orin Nano
-  - TensorRT GPU acceleration → 30 FPS
-  - Two-stage centering: COARSE (polynomial formula) + FINE (IBVS PID loop)
-  - udev symlinks for reliable camera/Arduino detection
+○ Previous weeks completed: TensorRT acceleration, two-stage IBVS pipeline, udev camera detection — all working and benchmarked
 
-○ **This week's goal:** wrap the working pipeline into ROS2 nodes so Behaviour Tree (BT) team can integrate
-
-○ **Why ROS2 is needed:** BT requires standard interfaces (goal/feedback/result), topic-based communication, and the ability to cancel long-running tasks mid-execution
+○ **This week's focus: ROS2 conversion** — wrapping the working pipeline into ROS2 nodes so Behaviour Tree integration can happen
 
 ○ All items from PLAN.md now completed:
 
@@ -29,7 +24,7 @@
 | README for BT person | ✅ Done |
 
 **Script for Slide 1:**
-"In the previous weeks I completed the standalone Python IBVS pipeline — TensorRT for 30 FPS, the two-stage centering method, reliable camera detection. This week the goal was to convert all of that into ROS2 so the Behaviour Tree integration can happen. The PLAN.md we created at the start of the ROS2 conversion phase — every single item on that plan is now completed. I want to walk through what was built and show you the results."
+"You already know the IBVS pipeline from last week — TensorRT at 30 FPS, two-stage centering, reliable camera detection. This week I converted all of that into ROS2. The reason is the Behaviour Tree integration — the navigation team needs standard ROS2 interfaces to call our inspection system. Every item on the plan we created for this phase is now done."
 
 ---
 

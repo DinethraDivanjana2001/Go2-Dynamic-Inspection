@@ -73,3 +73,6 @@ commands
 workspaces/mola_lo/rosbag_01/rosbag_01_0.mcap
 workspaces/mola_lo/rosbag_01/metadata.yaml
 workspaces/mola_lo/myMap.simplemap
+
+
+/maps

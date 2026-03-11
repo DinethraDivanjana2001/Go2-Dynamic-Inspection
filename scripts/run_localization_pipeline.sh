@@ -73,6 +73,7 @@ cleanup() {
     echo ""
     echo "Stopping launched processes..."
     jobs -p | xargs -r kill
+    pkill -f foxglove_bridge 2>/dev/null || true
 }
 
 cmd="${1:-all}"

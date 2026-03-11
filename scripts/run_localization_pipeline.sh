@@ -7,7 +7,7 @@ WORKSPACE_ROOT="$(dirname "$SCRIPT_DIR")"
 source "$SCRIPT_DIR/source_workspaces.sh"
 
 usage() {
-    echo "Usage: $0 [localization|localization-active|tf|bag|terrain|terrain-ext|far|local|all]"
+    echo "Usage: $0 [localization|localization-active|tf|bag|terrain|terrain-ext|far|local|foxglove|all|all-active]"
     echo ""
     echo "Commands:"
     echo "  localization             Run MOLA localization (start_active:=False)"
@@ -18,7 +18,9 @@ usage() {
     echo "  terrain-ext              Launch terrain_analysis_ext"
     echo "  far                      Launch far_planner"
     echo "  local                    Launch local_planner"
-    echo "  all                      Launch localization + terrain + terrain-ext + far + local + tf"
+    echo "  foxglove                 Start Foxglove bridge node"
+    echo "  all                      Launch localization + terrain + terrain-ext + far + local + tf + foxglove"
+    echo "  all-active               Same as 'all' but start localization active and play default bag"
 }
 
 run_localization() {
@@ -61,6 +63,12 @@ run_local() {
     ros2 launch local_planner local_planner.launch
 }
 
+run_foxglove() {
+    # start the Foxglove bridge; the package provides a node named
+    # "foxglove_bridge" which opens a websocket on port 8765 by default.
+    ros2 run foxglove_bridge foxglove_bridge
+}
+
 cleanup() {
     echo ""
     echo "Stopping launched processes..."
@@ -95,7 +103,7 @@ case "$cmd" in
         ;;
     all)
         trap cleanup SIGINT SIGTERM
-        run_localization "False" &
+        run_localization "True" &
         sleep 2
         run_tf &
         sleep 1
@@ -103,6 +111,21 @@ case "$cmd" in
         run_terrain_ext &
         run_far &
         run_local &
+        run_foxglove &
+        wait
+        ;;
+    all-active)
+        trap cleanup SIGINT SIGTERM
+        run_localization "True" &
+        sleep 2
+        run_tf &
+        sleep 1
+        run_terrain &
+        run_terrain_ext &
+        run_far &
+        run_local &
+        run_foxglove &
+        run_bag &
         wait
         ;;
     -h|--help|help)

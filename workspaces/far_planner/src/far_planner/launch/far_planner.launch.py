@@ -32,20 +32,20 @@ def generate_launch_description():
                 ('/terrain_local_cloud', '/terrain_map'),
                 ('/scan_cloud', '/lidar_odometry/deskewed_scan_points')
             ]
-        ),
-        
-        Node(
-            package='rviz2',
-            executable='rviz2',
-            name='far_rviz',
-            arguments=['-d', 
-                PythonExpression([
-                '"', 
-                get_package_share_directory('far_planner'), 
-                '/rviz/', 
-                LaunchConfiguration('config'), 
-                '.rviz"'])
-            ],
-            respawn=False,
         )
+        
+        # Node(
+        #     package='rviz2',
+        #     executable='rviz2',
+        #     name='far_rviz',
+        #     arguments=['-d', 
+        #         PythonExpression([
+        #         '"', 
+        #         get_package_share_directory('far_planner'), 
+        #         '/rviz/', 
+        #         LaunchConfiguration('config'), 
+        #         '.rviz"'])
+        #     ],
+        #     respawn=False,
+        # )
     ])

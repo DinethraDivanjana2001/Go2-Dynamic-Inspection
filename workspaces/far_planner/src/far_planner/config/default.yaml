@@ -10,7 +10,7 @@ far_planner:
     local_planner_range: 5.0   # Unit: meter
     visualize_ratio: 0.75
     is_viewpoint_extend: false
-    is_multi_layer: true
+    is_multi_layer: false
     is_opencv_visual: false # Obstacle Image Display
     is_static_env: false
     is_pub_boundary: true

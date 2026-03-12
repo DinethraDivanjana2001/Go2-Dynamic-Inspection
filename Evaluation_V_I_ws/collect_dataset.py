@@ -1,468 +1,480 @@
 #!/usr/bin/env python3
 """
-collect_dataset.py
-Run on JETSON — smart dataset collection script.
+collect_dataset.py  —  Visual Inspection Dataset Collector
+Run on Jetson as Terminal 4. Terminals 1,2,3 must already be running.
 
-What it does:
-  1. You pick session type (reference/angle/distance/gauge/vlm/occlusion/multi)
-  2. You set metadata (angle, distance, object etc.)
-  3. Press Enter → runs inspection automatically
-  4. Detects new images in captures/ → copies to correct eval folder
-  5. Asks ibvs_time + final_error (you read from Terminal 3)
-  6. Writes to capture_log.csv automatically
-  7. Loops for next image
-
-Run:
-  python3 ~/Documents/Visual_Inspection_ws/evaluation/collect_dataset.py
-
-Requirements:
-  - ROS2 sourced (Terminals 1, 2, 3 already running)
-  - Run this AS Terminal 4
+python3 ~/Documents/Visual_Inspection_ws/evaluation/collect_dataset.py
 """
 
-import os, sys, time, csv, shutil, subprocess
+import os, sys, re, time, csv, shutil, subprocess
 from pathlib import Path
 from datetime import datetime
 
-# ─── Paths ────────────────────────────────────────────────────────────────────
-BASE_WS   = Path.home() / 'Documents/Visual_Inspection_ws'
-EVAL_DIR  = BASE_WS / 'evaluation'
-CAPTURES  = BASE_WS / 'captures/inspection'
-LOG_CSV   = EVAL_DIR / 'capture_log.csv'
-TEST_SCRIPT = BASE_WS / 'test_scripts/test_full_pipeline.py'
+# ── Paths ──────────────────────────────────────────────────────
+BASE      = Path.home() / 'Documents/Visual_Inspection_ws'
+EVAL      = BASE / 'evaluation'
+CAPTURES  = BASE / 'captures/inspection'
+LOG_CSV   = EVAL / 'capture_log.csv'
+SCRIPT    = BASE / 'test_scripts/test_full_pipeline.py'
+ROS_CMD   = (f'bash -c "source /opt/ros/humble/setup.bash && '
+             f'source {BASE}/inspection_ws/install/setup.bash && '
+             f'python3 {SCRIPT}"')
 
-ROS_SETUP  = 'source /opt/ros/humble/setup.bash'
-WS_SETUP   = f'source {BASE_WS}/inspection_ws/install/setup.bash'
+# ── How many images per position ─────────────────────────────
+IMAGES_PER_ANGLE    = 10   # angle eval
+IMAGES_PER_DISTANCE = 10   # distance eval
+IMAGES_PER_GAUGE    = 3    # per reading position
+IMAGES_PER_VLM      = 10   # per scenario
+IMAGES_PER_OCCLUSION= 10   # per level
+IMAGES_PER_REF      = 5    # reference images
 
-# ─── Session types → (folder_base, metadata fields) ──────────────────────────
-SESSION_TYPES = {
-    '1': ('reference',        'Reference images (1m, 0°)'),
-    '2': ('angle_eval',       'Angle evaluation (horizontal/vertical)'),
-    '3': ('distance_eval',    'Distance evaluation'),
-    '4': ('gauge_accuracy',   'Gauge accuracy ground truth'),
-    '5': ('vlm_eval',         'VLM PASS/FAIL images'),
-    '6': ('occlusion',        'Occlusion evaluation'),
-    '7': ('multi_object',     'Multi-object scenes'),
-}
+# ── Colors ─────────────────────────────────────────────────────
+R='\033[1;31m'; G='\033[1;32m'; Y='\033[1;33m'
+B='\033[1;34m'; C='\033[1;36m'; W='\033[1m'; X='\033[0m'
 
-OBJECT_TYPES = {
-    '1': 'fire_extinguisher',
-    '2': 'gauge',
-    '3': 'door',
-    '4': 'emergency_exit',
-    '5': 'main_cylinder',
-}
+def div(c='─', n=60): print(c*n)
+def hdr(t, color=C): print(f'\n{color}{"═"*60}\n  {t}\n{"═"*60}{X}')
+def step(n, t): print(f'\n{W}  [{n}] {t}{X}')
+def ok(t):  print(f'{G}  ✓ {t}{X}')
+def bad(t): print(f'{R}  ✗ {t}{X}')
+def info(t):print(f'{Y}  → {t}{X}')
+def clr():  os.system('clear')
 
-H_ANGLES  = ['0deg','15deg_L','15deg_R','30deg_L','30deg_R','45deg_L','45deg_R']
-V_ANGLES  = ['0deg','15deg_up','15deg_down','30deg_up','30deg_down']
-DISTANCES = ['1m','2m','3m','4m']
-OCCLUSIONS = ['0pct','25pct','50pct','75pct']
+# ── CSV ────────────────────────────────────────────────────────
+COLS = ['timestamp','folder','filename','object_type','distance_m',
+        'angle_deg','angle_direction','occlusion_pct','n_objects',
+        'ibvs_time_s','final_error_px','converged','ground_truth_value','notes']
 
-VLM_FOLDERS = {
-    '1': 'fire_ext_pass',
-    '2': 'fire_ext_fail',
-    '3': 'exit_pass',
-    '4': 'exit_fail',
-    '5': 'door_pass',
-    '6': 'door_fail',
-    '7': 'cylinder_pass',
-    '8': 'cylinder_fail',
-}
-
-def clr(): os.system('clear')
-def h(t): print(f'\n\033[1;36m{t}\033[0m')
-def ok(t): print(f'\033[1;32m  ✓ {t}\033[0m')
-def err(t): print(f'\033[1;31m  ✗ {t}\033[0m')
-def ask(q, default=''): 
-    v = input(f'  {q} [{default}]: ').strip()
-    return v if v else default
-
-def ensure_log():
+def init_log():
+    EVAL.mkdir(parents=True, exist_ok=True)
     if not LOG_CSV.exists():
-        LOG_CSV.parent.mkdir(parents=True, exist_ok=True)
-        with open(LOG_CSV, 'w', newline='') as f:
-            csv.writer(f).writerow([
-                'timestamp','folder','filename','object_type',
-                'distance_m','angle_deg','angle_direction',
-                'occlusion_pct','n_objects','ibvs_time_s',
-                'final_error_px','converged','ground_truth_value','notes'
-            ])
+        with open(LOG_CSV,'w',newline='') as f:
+            csv.writer(f).writerow(COLS)
 
-def write_log(row: dict):
-    with open(LOG_CSV, 'a', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            'timestamp','folder','filename','object_type',
-            'distance_m','angle_deg','angle_direction',
-            'occlusion_pct','n_objects','ibvs_time_s',
-            'final_error_px','converged','ground_truth_value','notes'
-        ])
-        writer.writerow(row)
+def log_row(**kw):
+    kw.setdefault('timestamp', datetime.now().strftime('%Y-%m-%d_%H:%M:%S'))
+    with open(LOG_CSV,'a',newline='') as f:
+        csv.DictWriter(f,fieldnames=COLS).writerow(kw)
 
-def get_existing_captures():
-    """Snapshot of all existing img_ files in captures/inspection/"""
-    files = set()
+def count_rows():
+    if not LOG_CSV.exists(): return 0
+    return sum(1 for _ in open(LOG_CSV))-1
+
+# ── Run pipeline, parse ibvs stats ─────────────────────────────
+def run_and_parse():
+    """Run inspection pipeline, auto-parse IBVS stats from output."""
+    before = set()
     if CAPTURES.exists():
-        for f in CAPTURES.rglob('img_*.jpg'):
-            files.add(f)
-    return files
+        before = {f for f in CAPTURES.rglob('img_*.jpg')}
 
-def wait_for_new_capture(before: set, timeout=90):
-    """Poll captures/ until a new img_ file appears. Returns Path of newest, or None."""
-    deadline = time.time() + timeout
-    print('  ⏳ Waiting for inspection to complete and image to appear...', end='', flush=True)
-    while time.time() < deadline:
-        after = set()
-        if CAPTURES.exists():
-            for f in CAPTURES.rglob('img_*.jpg'):
-                after.add(f)
-        new = after - before
-        if new:
-            print(' done!')
-            # Return the img_01.jpg (sharpest) from the newest session
-            newest = max(new, key=lambda f: f.stat().st_mtime)
-            # Prefer img_01 from same session
-            session_dir = newest.parent
-            img01 = session_dir / 'img_01.jpg'
-            return img01 if img01.exists() else newest
-        time.sleep(1)
-        print('.', end='', flush=True)
-    print(' TIMEOUT!')
-    return None
+    info('Launching inspection pipeline...')
+    ibvs_time, final_err, converged = 0.0, 0.0, False
+    output_lines = []
 
-def run_inspection():
-    """Run the pipeline. Returns True if launched."""
-    cmd = f'bash -c "{ROS_SETUP} && {WS_SETUP} && python3 {TEST_SCRIPT}"'
-    print(f'\n  🚀 Running inspection...')
-    proc = subprocess.Popen(cmd, shell=True,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True)
-    # Print output until done
-    for line in proc.stdout:
-        l = line.strip()
-        if l:
-            print(f'     {l}')
-        if 'RESULT' in l or 'success=True' in l or 'success=False' in l:
-            break
-    proc.wait()
-    return True
+    try:
+        proc = subprocess.Popen(ROS_CMD, shell=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        for line in proc.stdout:
+            l = line.strip()
+            if l: print(f'     {l}')
+            output_lines.append(l)
+            # Parse converge line: "IBVS converged: err=7.8px at iter 38"
+            m = re.search(r'IBVS converged.*err=([\d.]+)px.*iter\s+(\d+)', l)
+            if m:
+                final_err   = float(m.group(1))
+                ibvs_time   = round(int(m.group(2)) * 0.066, 1)
+                converged   = True
+            # Parse timeout: "IBVS timeout after 40.0s"
+            m2 = re.search(r'IBVS timeout', l)
+            if m2:
+                converged = False
+                ibvs_time = 40.0
+            if 'success=True' in l or 'success=False' in l or 'RESULT' in l:
+                break
+        proc.wait(timeout=5)
+    except Exception as e:
+        bad(f'Pipeline error: {e}')
 
-def get_next_number(dest_dir: Path, prefix='img_') -> int:
-    existing = list(dest_dir.glob(f'{prefix}*.jpg'))
+    # Find new image
+    time.sleep(1)
+    after = set()
+    if CAPTURES.exists():
+        after = {f for f in CAPTURES.rglob('img_*.jpg')}
+    new = after - before
+    img_path = None
+    if new:
+        newest = max(new, key=lambda f: f.stat().st_mtime)
+        img01  = newest.parent / 'img_01.jpg'
+        img_path = img01 if img01.exists() else newest
+
+    return img_path, ibvs_time, final_err, converged
+
+def save_image(img_path, dest_dir, filename):
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dst = dest_dir / filename
+    if img_path and img_path.exists():
+        shutil.copy2(img_path, dst)
+        ok(f'Saved → {dst.relative_to(EVAL)}')
+        return True
+    bad(f'No image found to copy')
+    return False
+
+def next_n(folder, prefix='img_'):
+    existing = list(folder.glob(f'{prefix}*.jpg'))
     if not existing: return 1
     nums = []
     for f in existing:
-        try:
-            n = int(f.stem.replace(prefix,'').split('_')[0])
-            nums.append(n)
-        except: pass
+        m = re.search(r'(\d+)', f.stem.replace(prefix,''))
+        if m: nums.append(int(m.group(1)))
     return max(nums)+1 if nums else 1
 
-def ask_ibvs_stats():
-    """Ask user to enter ibvs stats from Terminal 3."""
-    print('\n  📋 Check Terminal 3 for IBVS result:')
-    print('     Look for: "IBVS converged: err=X.Xpx at iter N"')
-    print('     ibvs_time ≈ iter × 0.066  (e.g. iter=38 → 38×0.066 ≈ 2.5s)')
-    ibvs_t = ask('ibvs_time_s (converge time in seconds, 0 if timeout)', '0')
-    err_px = ask('final_error_px (error shown, 0 if timeout)', '0')
-    conv   = ask('converged? (y/n)', 'y').lower().startswith('y')
-    return ibvs_t, err_px, conv
+def capture_loop(dest_folder, subfolder_name, obj_type, distance, angle_deg,
+                 angle_dir, occlusion, n_objects, n_images,
+                 ground_truth='N/A', ask_caption=False, filename_prefix='img_'):
+    """Generic capture loop used by all sessions."""
+    dest = EVAL / subfolder_name
+    dest.mkdir(parents=True, exist_ok=True)
+    captured = 0
 
-# ─── Session handlers ─────────────────────────────────────────────────────────
+    for i in range(n_images):
+        div()
+        print(f'{C}  Image {i+1} of {n_images}{X}')
+        input(f'{W}  ▶  Position robot. Press ENTER to capture...{X}')
+        print()
+
+        img, ibvs_t, err_px, conv = run_and_parse()
+        n     = next_n(dest, prefix=filename_prefix)
+        fname = f'{filename_prefix}{n:02d}.jpg'
+
+        if save_image(img, dest, fname):
+            captured += 1
+
+        if conv:
+            ok(f'IBVS converged in {ibvs_t}s  |  final error = {err_px}px')
+        else:
+            bad(f'IBVS did NOT converge (timeout)')
+
+        caption = ''
+        if ask_caption:
+            caption = input(f'{Y}  Caption (1 sentence what camera sees): {X}').strip()
+
+        log_row(folder=subfolder_name, filename=fname, object_type=obj_type,
+                distance_m=distance, angle_deg=angle_deg, angle_direction=angle_dir,
+                occlusion_pct=occlusion, n_objects=n_objects,
+                ibvs_time_s=ibvs_t, final_error_px=err_px, converged=conv,
+                ground_truth_value=ground_truth, notes=caption)
+
+        ok(f'Logged  [{captured}/{n_images} captured so far]')
+        print()
+
+    return captured
+
+# ── Sessions ────────────────────────────────────────────────────
 
 def session_reference():
-    h('SESSION 1 — REFERENCE IMAGES')
-    print('  Target: 5 images per object | 1m distance | 0° angle')
-    obj = OBJECT_TYPES[ask('Object? 1=fire_ext 2=gauge 3=door 4=exit 5=cylinder', '1')]
-    n_runs = int(ask('How many images to capture this run', '5'))
+    hdr('SESSION 1 — REFERENCE IMAGES')
+    print(f'''
+  PURPOSE: Gold-standard baseline images for ALL quality metrics.
 
-    for i in range(n_runs):
-        print(f'\n  ── Run {i+1}/{n_runs} ──')
-        input('  Position robot at 1m, facing object directly. Press ENTER when ready...')
-        before = get_existing_captures()
-        run_inspection()
-        img = wait_for_new_capture(before)
-        if not img:
-            err('No image captured — check pipeline'); continue
+  SETUP:
+   • Pick 1 object
+   • Place robot at exactly 1 metre, facing it directly
+   • Good even lighting (no glare)
 
-        dest = EVAL_DIR / 'reference'
-        n    = get_next_number(dest, prefix=f'{obj.split("_")[0]}_ref_')
-        fname= f'{obj.split("_")[0]}_ref_{n:02d}.jpg'
-        shutil.copy2(img, dest / fname)
-        ok(f'Saved → reference/{fname}')
+  OBJECTS:  1=fire_extinguisher  2=gauge  3=door  4=emergency_exit
+''')
+    objs = {'1':'fire_extinguisher','2':'gauge','3':'door','4':'emergency_exit'}
+    obj = objs.get(input('  Select object: ').strip(), 'fire_extinguisher')
+    prefix = obj.split('_')[0]+'_ref_'
 
-        ibvs_t, err_px, conv = ask_ibvs_stats()
-        write_log({'timestamp': datetime.now().strftime('%Y-%m-%d_%H:%M:%S'),
-                   'folder': 'reference', 'filename': fname, 'object_type': obj,
-                   'distance_m': '1.0', 'angle_deg': '0', 'angle_direction': 'center',
-                   'occlusion_pct': '0', 'n_objects': '1',
-                   'ibvs_time_s': ibvs_t, 'final_error_px': err_px, 'converged': conv,
-                   'ground_truth_value': 'N/A', 'notes': ask('Notes (optional)', 'reference image 1m 0deg')})
-        ok('Written to capture_log.csv')
+    info(f'Collecting {IMAGES_PER_REF} reference images for {obj}')
+    info('Robot: 1m distance, 0° angle, head-on')
+
+    capture_loop(EVAL/'reference', 'reference', obj,
+                 distance='1.0', angle_deg='0', angle_dir='center',
+                 occlusion='0', n_objects='1',
+                 n_images=IMAGES_PER_REF,
+                 filename_prefix=prefix)
 
 def session_angle():
-    h('SESSION 2 — ANGLE EVALUATION')
-    obj = OBJECT_TYPES[ask('Object? 1=fire_ext 2=gauge 3=door', '1')]
-    dist= ask('Distance (keep at 2m)', '2.0')
+    hdr('SESSION 2 — ANGLE EVALUATION  (Professor Required)')
+    angles_h = ['0deg','15deg_L','15deg_R','30deg_L','30deg_R','45deg_L','45deg_R']
+    angles_v = ['0deg','15deg_up','15deg_down','30deg_up','30deg_down']
 
-    print('\n  Horizontal angles:')
-    for i,a in enumerate(H_ANGLES): print(f'    {i+1}: {a}')
-    print('  Vertical angles:')
-    for i,a in enumerate(V_ANGLES): print(f'    {i+1+len(H_ANGLES)}: {a} (vertical)')
+    print(f'''
+  OBJECT: fire_extinguisher (keep it fixed on wall)
+  DISTANCE: 2m for all angles  ← DO NOT CHANGE
+  MOVE: only the robot changes angle
 
-    choice = ask('Select angle (1-12)', '1')
-    idx = int(choice)-1
-    if idx < len(H_ANGLES):
-        angle_str = H_ANGLES[idx]
-        subfolder  = f'angle_eval/horizontal/{angle_str}'
-        angle_deg  = angle_str.replace('deg_L','').replace('deg_R','').replace('deg','')
-        angle_dir  = 'L' if 'L' in angle_str else ('R' if 'R' in angle_str else 'center')
+  HORIZONTAL ANGLES:
+    1: 0deg   (head-on, directly facing)
+    2: 15deg_L  3: 15deg_R
+    4: 30deg_L  5: 30deg_R
+    6: 45deg_L  7: 45deg_R
+
+  VERTICAL ANGLES:
+    8: 0deg      9: 15deg_up   10: 15deg_down
+   11: 30deg_up  12: 30deg_down
+''')
+    all_angles = angles_h + angles_v
+    choice = int(input('  Select angle (1-12): ').strip()) - 1
+    ang = all_angles[choice]
+
+    if choice < len(angles_h):
+        subfolder = f'angle_eval/horizontal/{ang}'
+        angle_deg = re.sub(r'[^0-9]','',ang)
+        angle_dir = 'L' if 'L' in ang else ('R' if 'R' in ang else 'center')
     else:
-        angle_str = V_ANGLES[idx-len(H_ANGLES)]
-        subfolder  = f'angle_eval/vertical/{angle_str}'
-        angle_deg  = angle_str.replace('deg_up','').replace('deg_down','').replace('deg','')
-        angle_dir  = 'up' if 'up' in angle_str else ('down' if 'down' in angle_str else 'center')
+        subfolder = f'angle_eval/vertical/{ang}'
+        angle_deg = re.sub(r'[^0-9]','',ang)
+        angle_dir = 'up' if 'up' in ang else ('down' if 'down' in ang else 'center')
 
-    n_runs = int(ask('Number of images', '5'))
-    dest   = EVAL_DIR / subfolder
+    info(f'Collecting {IMAGES_PER_ANGLE} images at {ang}')
+    info(f'Robot position: 2m away, {ang} offset')
 
-    for i in range(n_runs):
-        print(f'\n  ── Run {i+1}/{n_runs} | {angle_str} | {dist}m ──')
-        input(f'  Position robot at {dist}m, {angle_str}. Press ENTER when ready...')
-        before = get_existing_captures()
-        run_inspection()
-        img = wait_for_new_capture(before)
-        if not img:
-            err('No image captured'); continue
-
-        n     = get_next_number(dest)
-        fname = f'img_{n:02d}.jpg'
-        shutil.copy2(img, dest / fname)
-        ok(f'Saved → {subfolder}/{fname}')
-
-        ibvs_t, err_px, conv = ask_ibvs_stats()
-        write_log({'timestamp': datetime.now().strftime('%Y-%m-%d_%H:%M:%S'),
-                   'folder': subfolder, 'filename': fname, 'object_type': obj,
-                   'distance_m': dist, 'angle_deg': angle_deg, 'angle_direction': angle_dir,
-                   'occlusion_pct': '0', 'n_objects': '1',
-                   'ibvs_time_s': ibvs_t, 'final_error_px': err_px, 'converged': conv,
-                   'ground_truth_value': 'N/A', 'notes': ask('Notes', f'{angle_str} {dist}m')})
-        ok('Written to capture_log.csv')
+    capture_loop(EVAL/subfolder, subfolder, 'fire_extinguisher',
+                 distance='2.0', angle_deg=angle_deg, angle_dir=angle_dir,
+                 occlusion='0', n_objects='1',
+                 n_images=IMAGES_PER_ANGLE)
 
 def session_distance():
-    h('SESSION 3 — DISTANCE EVALUATION')
-    obj  = OBJECT_TYPES[ask('Object? 1=fire_ext 2=gauge 3=door', '2')]
-    print('\n  Distances: 1=1m  2=2m  3=3m  4=4m')
-    dist_key = DISTANCES[int(ask('Select distance', '1'))-1]
-    dist_val = dist_key.replace('m','')
-    subfolder= f'distance_eval/{dist_key}'
-    dest     = EVAL_DIR / subfolder
-    n_runs   = int(ask('Number of images', '5'))
+    hdr('SESSION 3 — DISTANCE EVALUATION')
+    print(f'''
+  OBJECT: gauge  (best for testing OCR readability)
+  ANGLE: 0° head-on  ← DO NOT CHANGE
+  CHANGE: only the robot distance
 
-    for i in range(n_runs):
-        print(f'\n  ── Run {i+1}/{n_runs} | 0° | {dist_key} ──')
-        input(f'  Position robot at {dist_key}, 0° head-on. Press ENTER when ready...')
-        before = get_existing_captures()
-        run_inspection()
-        img = wait_for_new_capture(before)
-        if not img:
-            err('No image captured'); continue
+  1: 1m    2: 2m    3: 3m    4: 4m
+  (4m expected to show blurry images — that is intentional)
+''')
+    dists = ['1','2','3','4']
+    choice = int(input('  Select distance (1-4): ').strip()) - 1
+    dist = dists[choice]
+    subfolder = f'distance_eval/{dist}m'
 
-        n     = get_next_number(dest)
-        fname = f'img_{n:02d}.jpg'
-        shutil.copy2(img, dest / fname)
-        ok(f'Saved → {subfolder}/{fname}')
+    info(f'Collecting {IMAGES_PER_DISTANCE} images at {dist}m')
+    info('Robot: 0° angle, head-on facing gauge')
 
-        ibvs_t, err_px, conv = ask_ibvs_stats()
-        readable = ask('Can you read gauge numbers in the image? (y/n)', 'y')
-        write_log({'timestamp': datetime.now().strftime('%Y-%m-%d_%H:%M:%S'),
-                   'folder': subfolder, 'filename': fname, 'object_type': obj,
-                   'distance_m': dist_val, 'angle_deg': '0', 'angle_direction': 'center',
-                   'occlusion_pct': '0', 'n_objects': '1',
-                   'ibvs_time_s': ibvs_t, 'final_error_px': err_px, 'converged': conv,
-                   'ground_truth_value': 'N/A',
-                   'notes': f'readable={readable} | {ask("Notes","")}'})
-        ok('Written to capture_log.csv')
+    capture_loop(EVAL/subfolder, subfolder, 'gauge',
+                 distance=dist+'.0', angle_deg='0', angle_dir='center',
+                 occlusion='0', n_objects='1',
+                 n_images=IMAGES_PER_DISTANCE)
 
 def session_gauge():
-    h('SESSION 4 — GAUGE ACCURACY GROUND TRUTH')
-    print('  Set gauge pointer to a known position. Write down the true value.')
-    dist = ask('Distance (m)', '2.0')
-    n_runs = int(ask('Number of images for this reading position', '3'))
-    true_val = ask('True gauge reading (e.g. 2.5 or 5.0)', '')
-    dest = EVAL_DIR / 'gauge_accuracy'
+    hdr('SESSION 4 — GAUGE ACCURACY GROUND TRUTH')
+    print(f'''
+  PURPOSE: True reading value for EVERY image — used for MAE/RMSE eval.
 
-    for i in range(n_runs):
-        print(f'\n  ── Run {i+1}/{n_runs} | gauge={true_val} | {dist}m ──')
-        input('  Position robot. Press ENTER when ready...')
-        before = get_existing_captures()
-        run_inspection()
-        img = wait_for_new_capture(before)
-        if not img:
-            err('No image captured'); continue
+  SETUP:
+   • Real pressure/water/compound gauge
+   • Set pointer to a known position (use tape to fix pointer)
+   • Write down the EXACT true reading before each set
+   • Distance: 2m, Angle: 0°
 
-        fname = f'gauge_{true_val}_{dist}m_n{i+1}.jpg'
-        shutil.copy2(img, dest / fname)
-        ok(f'Saved → gauge_accuracy/{fname}')
+  READING POSITIONS TO COLLECT:
+   • Low   (~10% of scale)
+   • 25%   of scale
+   • Mid   (50%)
+   • 75%   of scale
+   • High  (~90% of scale)
+   → 3 images per position = 15 images total minimum
+''')
+    true_val = input(f'  {W}Enter TRUE gauge reading (e.g. 2.5): {X}').strip()
+    info(f'Collecting {IMAGES_PER_GAUGE} images with true value = {true_val}')
+    info('Robot: 2m distance, 0° angle')
 
-        ibvs_t, err_px, conv = ask_ibvs_stats()
-        write_log({'timestamp': datetime.now().strftime('%Y-%m-%d_%H:%M:%S'),
-                   'folder': 'gauge_accuracy', 'filename': fname, 'object_type': 'gauge',
-                   'distance_m': dist, 'angle_deg': '0', 'angle_direction': 'center',
-                   'occlusion_pct': '0', 'n_objects': '1',
-                   'ibvs_time_s': ibvs_t, 'final_error_px': err_px, 'converged': conv,
-                   'ground_truth_value': true_val,
-                   'notes': ask('Notes (e.g. pointer between 2 and 3)', f'gauge reading {true_val}')})
-        ok('Written to capture_log.csv')
+    for i in range(IMAGES_PER_GAUGE):
+        div()
+        print(f'{C}  Image {i+1} of {IMAGES_PER_GAUGE} | gauge reading = {true_val}{X}')
+        input(f'{W}  ▶  Position robot. Press ENTER to capture...{X}')
+
+        img, ibvs_t, err_px, conv = run_and_parse()
+        fname = f'gauge_{true_val}_{2}m_n{i+1}.jpg'
+        dest  = EVAL / 'gauge_accuracy'
+
+        if save_image(img, dest, fname):
+            if conv: ok(f'IBVS {ibvs_t}s | err {err_px}px')
+            else:    bad('IBVS timeout')
+            log_row(folder='gauge_accuracy', filename=fname, object_type='gauge',
+                    distance_m='2.0', angle_deg='0', angle_direction='center',
+                    occlusion_pct='0', n_objects='1',
+                    ibvs_time_s=ibvs_t, final_error_px=err_px, converged=conv,
+                    ground_truth_value=true_val,
+                    notes=f'gauge reading {true_val}')
+            ok('Logged')
 
 def session_vlm():
-    h('SESSION 5 — VLM IMAGES')
-    print('  Select folder:')
-    for k,v in VLM_FOLDERS.items(): print(f'    {k}: {v}')
-    folder_key = ask('Choice', '1')
-    subfolder  = f'vlm_eval/{VLM_FOLDERS[folder_key]}'
-    obj_map    = {'fire_ext_pass':'fire_extinguisher','fire_ext_fail':'fire_extinguisher',
-                  'exit_pass':'emergency_exit','exit_fail':'emergency_exit',
-                  'door_pass':'door','door_fail':'door',
-                  'cylinder_pass':'main_cylinder','cylinder_fail':'main_cylinder'}
-    obj = obj_map.get(VLM_FOLDERS[folder_key], 'unknown')
-    expected = 'PASS' if 'pass' in VLM_FOLDERS[folder_key] else 'FAIL'
-    dist = ask('Distance (m)', '2.0')
-    n_runs = int(ask('Number of images', '5'))
-    dest = EVAL_DIR / subfolder
+    hdr('SESSION 5 — VLM PASS/FAIL IMAGES')
+    folders = {
+        '1': ('fire_ext_pass',  'fire_extinguisher', 'PASS'),
+        '2': ('fire_ext_fail',  'fire_extinguisher', 'FAIL'),
+        '3': ('exit_pass',      'emergency_exit',    'PASS'),
+        '4': ('exit_fail',      'emergency_exit',    'FAIL'),
+        '5': ('door_pass',      'door',              'PASS'),
+        '6': ('door_fail',      'door',              'FAIL'),
+        '7': ('cylinder_pass',  'main_cylinder',     'PASS'),
+        '8': ('cylinder_fail',  'main_cylinder',     'FAIL'),
+    }
+    setups = {
+        '1': 'Extinguisher on wall, NOTHING blocking it',
+        '2': 'Place large box/chair DIRECTLY in front blocking access',
+        '3': 'Door/exit with COMPLETELY clear walkway',
+        '4': 'Stack 2-3 chairs or boxes blocking the door',
+        '5': 'Regular door — open state',
+        '6': 'Regular door — blocked by objects',
+        '7': 'Machinery/cylinder — floor dry, no leak',
+        '8': 'Pour small amount of water near cylinder base (simulates oil leak)',
+    }
+    captions = {
+        '1': 'fire extinguisher on wall bracket, fully accessible, clear path in front',
+        '2': 'fire extinguisher on wall, large cardboard box blocking access path',
+        '3': 'emergency exit door with completely clear walkway, no obstructions',
+        '4': 'emergency exit door blocked by stacked chairs placed in front',
+        '5': 'door in open state, access clear',
+        '6': 'door blocked by objects',
+        '7': 'cylinder area, floor dry and clean, no leak visible',
+        '8': 'water puddle on floor near cylinder base simulating oil leak',
+    }
+    print()
+    for k,(f,o,d) in folders.items():
+        print(f'  {k}: {f:20s}  ({o}, expected={d})')
+    print()
+    choice = input('  Select scenario: ').strip()
+    if choice not in folders:
+        bad('Invalid choice'); return
 
-    for i in range(n_runs):
-        print(f'\n  ── Run {i+1}/{n_runs} | {VLM_FOLDERS[folder_key]} ──')
-        input('  Set up the scene (e.g. place box to block). Press ENTER when ready...')
-        before = get_existing_captures()
-        run_inspection()
-        img = wait_for_new_capture(before)
-        if not img:
-            err('No image captured'); continue
+    folder_name, obj_type, expected = folders[choice]
+    subfolder = f'vlm_eval/{folder_name}'
 
-        n     = get_next_number(dest)
-        fname = f'{VLM_FOLDERS[folder_key]}_{n:02d}.jpg'
-        shutil.copy2(img, dest / fname)
-        ok(f'Saved → {subfolder}/{fname}')
+    print(f'''
+{Y}  SETUP FOR THIS SCENARIO:
+  {setups[choice]}{X}
 
-        ibvs_t, err_px, conv = ask_ibvs_stats()
-        caption = ask('Write 1-sentence caption describing exactly what the camera sees',
-                      f'{obj} {expected} scenario')
-        write_log({'timestamp': datetime.now().strftime('%Y-%m-%d_%H:%M:%S'),
-                   'folder': subfolder, 'filename': fname, 'object_type': obj,
-                   'distance_m': dist, 'angle_deg': '0', 'angle_direction': 'center',
-                   'occlusion_pct': '0', 'n_objects': '1',
-                   'ibvs_time_s': ibvs_t, 'final_error_px': err_px, 'converged': conv,
-                   'ground_truth_value': expected, 'notes': caption})
-        ok('Written to capture_log.csv')
+  Distance: 2m | Angle: 0°
+  Caption suggestion: "{captions[choice]}"
+  (edit caption when asked if needed)
+''')
+    input('  Press ENTER when scene is set up...')
+    info(f'Collecting {IMAGES_PER_VLM} images for {folder_name}')
+
+    capture_loop(EVAL/subfolder, subfolder, obj_type,
+                 distance='2.0', angle_deg='0', angle_dir='center',
+                 occlusion='0', n_objects='1',
+                 n_images=IMAGES_PER_VLM,
+                 ground_truth=expected,
+                 ask_caption=True,
+                 filename_prefix=f'{folder_name}_')
 
 def session_occlusion():
-    h('SESSION 6 — OCCLUSION EVALUATION')
-    obj  = OBJECT_TYPES[ask('Object? 1=fire_ext 2=gauge', '1')]
-    print('\n  Occlusion levels: 1=0%  2=25%  3=50%  4=75%')
-    occ_key = OCCLUSIONS[int(ask('Select occlusion level', '1'))-1]
-    occ_pct = occ_key.replace('pct','')
-    subfolder= f'occlusion/{occ_key}'
-    dest     = EVAL_DIR / subfolder
-    n_runs   = int(ask('Number of images', '5'))
+    hdr('SESSION 6 — OCCLUSION EVALUATION')
+    levels = {'1':('0pct','0','Nothing covering object — full visibility'),
+              '2':('25pct','25','Cover BOTTOM QUARTER with tape/cardboard'),
+              '3':('50pct','50','Cover BOTTOM HALF with tape/cardboard'),
+              '4':('75pct','75','Cover THREE-QUARTERS (expect detection to fail)')}
+    print()
+    for k,(f,p,d) in levels.items():
+        print(f'  {k}: {f}  — {d}')
+    print()
+    choice = input('  Select occlusion level: ').strip()
+    if choice not in levels:
+        bad('Invalid choice'); return
 
-    print(f'\n  Cover {occ_pct}% of the object with tape/cardboard.')
+    folder_name, pct, setup_desc = levels[choice]
+    subfolder = f'occlusion/{folder_name}'
 
-    for i in range(n_runs):
-        print(f'\n  ── Run {i+1}/{n_runs} | occlusion={occ_key} ──')
-        input('  Set up occlusion. Press ENTER when ready...')
-        before = get_existing_captures()
-        run_inspection()
-        img = wait_for_new_capture(before)
+    print(f'''
+{Y}  SETUP:
+  Object:   fire_extinguisher (2m away, 0° angle)
+  Occlusion: {setup_desc}{X}
+''')
+    input('  Apply occlusion to object. Press ENTER when ready...')
+    info(f'Collecting {IMAGES_PER_OCCLUSION} images at {folder_name} occlusion')
 
-        n     = get_next_number(dest)
-        fname = f'img_{n:02d}.jpg'
-        if img:
-            shutil.copy2(img, dest / fname)
-            ok(f'Saved → {subfolder}/{fname}')
-        else:
-            fname = f'NO_CAPTURE_{n:02d}'
-            err('No capture — YOLO probably did not detect (expected at high occlusion)')
-
-        ibvs_t, err_px, conv = ask_ibvs_stats()
-        write_log({'timestamp': datetime.now().strftime('%Y-%m-%d_%H:%M:%S'),
-                   'folder': subfolder, 'filename': fname, 'object_type': obj,
-                   'distance_m': '2.0', 'angle_deg': '0', 'angle_direction': 'center',
-                   'occlusion_pct': occ_pct, 'n_objects': '1',
-                   'ibvs_time_s': ibvs_t, 'final_error_px': err_px, 'converged': conv,
-                   'ground_truth_value': 'N/A', 'notes': ask('Notes', f'{occ_key} covering')})
-        ok('Written to capture_log.csv')
+    capture_loop(EVAL/subfolder, subfolder, 'fire_extinguisher',
+                 distance='2.0', angle_deg='0', angle_dir='center',
+                 occlusion=pct, n_objects='1',
+                 n_images=IMAGES_PER_OCCLUSION)
 
 def session_multi():
-    h('SESSION 7 — MULTI-OBJECT')
-    n_obj = ask('How many objects in scene (2/3)', '2')
-    subfolder = f'multi_object/{n_obj}_objects'
-    dest = EVAL_DIR / subfolder
-    n_runs = int(ask('Number of runs', '3'))
-    obj = ask('Describe objects (e.g. 2 fire extinguishers)', '2 fire_extinguisher')
-    dist = ask('Distance', '2.0')
+    hdr('SESSION 7 — MULTI-OBJECT')
+    scenes = {
+        '1': ('2_objects', '2 fire extinguishers side by side'),
+        '2': ('2_objects', '1 gauge + 1 fire extinguisher in same view'),
+        '3': ('2_objects', '1 object front half + 1 object back half of Insta360'),
+        '4': ('3_objects', '3 gauges across a panel'),
+    }
+    print()
+    for k,(f,d) in scenes.items():
+        print(f'  {k}: {d}')
+    print()
+    choice = input('  Select scene: ').strip()
+    folder_name, desc = scenes.get(choice,('2_objects','multi-object scene'))
+    n_obj = '3' if '3_objects' in folder_name else '2'
 
-    for i in range(n_runs):
-        print(f'\n  ── Run {i+1}/{n_runs} ──')
-        input('  Set up multi-object scene. Press ENTER when ready...')
-        before = get_existing_captures()
-        run_inspection()
-        img = wait_for_new_capture(before, timeout=120)
-        if not img:
-            err('No image captured'); continue
+    print(f'\n{Y}  SETUP: {desc}{X}\n')
+    input('  Arrange the scene. Press ENTER when ready...')
 
-        n     = get_next_number(dest)
-        fname = f'img_{n:02d}.jpg'
-        shutil.copy2(img, dest / fname)
-        ok(f'Saved → {subfolder}/{fname}')
+    capture_loop(EVAL/f'multi_object/{folder_name}',
+                 f'multi_object/{folder_name}', desc,
+                 distance='2.0', angle_deg='0', angle_dir='center',
+                 occlusion='0', n_objects=n_obj, n_images=5)
 
-        ibvs_t, err_px, conv = ask_ibvs_stats()
-        write_log({'timestamp': datetime.now().strftime('%Y-%m-%d_%H:%M:%S'),
-                   'folder': subfolder, 'filename': fname, 'object_type': obj,
-                   'distance_m': dist, 'angle_deg': '0', 'angle_direction': 'center',
-                   'occlusion_pct': '0', 'n_objects': n_obj,
-                   'ibvs_time_s': ibvs_t, 'final_error_px': err_px, 'converged': conv,
-                   'ground_truth_value': 'N/A', 'notes': ask('Notes','multi-object run')})
-        ok('Written to capture_log.csv')
+# ── Main menu ────────────────────────────────────────────────────
 
-# ─── Main menu ────────────────────────────────────────────────────────────────
+MENU = [
+    ('1', 'Reference images      (1m, 0°, 5 images per object)'),
+    ('2', 'Angle evaluation      (2m fixed, 10 images per angle)'),
+    ('3', 'Distance evaluation   (0° fixed, 10 images per distance)'),
+    ('4', 'Gauge ground truth    (3 images per reading value)'),
+    ('5', 'VLM PASS/FAIL images  (10 images per scenario)'),
+    ('6', 'Occlusion evaluation  (10 images per level)'),
+    ('7', 'Multi-object scenes   (5 images per scene)'),
+    ('q', 'Quit'),
+]
 
 def main():
-    ensure_log()
+    init_log()
     while True:
         clr()
-        print('='*55)
-        print('  VISUAL INSPECTION — DATASET COLLECTION')
-        print('='*55)
-        print('  Make sure Terminals 1, 2, 3 are running first!')
-        print()
-        for k,(f,label) in SESSION_TYPES.items():
-            print(f'  {k}: {label}')
-        print('  q: Quit')
-        print()
-        print(f'  Log: {LOG_CSV}')
-        n_rows = sum(1 for _ in open(LOG_CSV))-1 if LOG_CSV.exists() else 0
-        print(f'  Images logged so far: {n_rows}')
-        print()
+        hdr('VISUAL INSPECTION — DATASET COLLECTION', color=B)
+        print(f'''
+  {W}MAKE SURE THESE ARE ALREADY RUNNING:{X}
+    Terminal 1: ros2 run visual_inspection_ros camera_node
+    Terminal 2: ros2 run visual_inspection_ros servo_node
+    Terminal 3: ros2 run visual_inspection_ros ibvs_action_server
 
-        choice = input('  Select session type: ').strip().lower()
-        if choice == 'q': break
-        elif choice == '1': session_reference()
-        elif choice == '2': session_angle()
-        elif choice == '3': session_distance()
-        elif choice == '4': session_gauge()
-        elif choice == '5': session_vlm()
-        elif choice == '6': session_occlusion()
-        elif choice == '7': session_multi()
+  {Y}Images logged so far: {count_rows()}{X}
+  {Y}Save location: {EVAL}{X}
+''')
+        div()
+        print(f'  {W}SELECT SESSION:{X}')
+        for k,label in MENU:
+            print(f'    {C}{k}{X}: {label}')
+        print()
+        choice = input('  ▶ Your choice: ').strip().lower()
+
+        fn = {'1':session_reference,'2':session_angle,'3':session_distance,
+              '4':session_gauge,    '5':session_vlm, '6':session_occlusion,
+              '7':session_multi}.get(choice)
+
+        if choice == 'q':
+            break
+        elif fn:
+            fn()
+            print()
+            input(f'\n{G}  Session done! Press ENTER to return to menu...{X}')
         else:
-            print('  Invalid choice'); time.sleep(1); continue
+            bad('Invalid choice')
+            time.sleep(1)
 
-        print()
-        cont = input('\n  Continue collecting? (y/n): ').strip().lower()
-        if cont != 'y': break
-
-    print('\n  Collection session ended.')
-    print(f'  Log saved to: {LOG_CSV}')
-    print(f'  Images saved to: {EVAL_DIR}')
+    clr()
+    hdr('COLLECTION COMPLETE', color=G)
+    print(f'  Log file : {LOG_CSV}')
+    print(f'  Images   : {EVAL}')
+    print(f'  Total    : {count_rows()} images logged\n')
+    print('  SCP to laptop:')
+    print(f'  scp -r rgen@192.168.8.181:{EVAL} \\')
+    print('      /home/dinethra/Jetson_orin_nano/Evaluation_V_I_ws/eval_dataset/')
 
 if __name__ == '__main__':
     main()

@@ -1,13 +1,19 @@
 # Visual Inspection — Data Collection Guide (Jetson Only)
-**Date:** 2026-03-12 | Version: 2.0
+**Date:** 2026-03-12 | Version: 3.0
 
 ---
 
-## WHAT THIS GUIDE IS
+## HOW IT WORKS
 
-This guide is ONLY for collecting the dataset on Jetson.
-- ✅ Where to position robot
-- ✅ Which commands to run
+1. Start Terminals 1, 2, 3 (pipeline) as always
+2. Run `collect_dataset.py` as Terminal 4
+3. Pick session from the menu
+4. Move robot → press Enter
+5. Script runs inspection + copies image + writes log automatically
+
+**No manual file copying. No manual CSV editing.**
+
+---
 - ✅ Where to copy images
 - ✅ What to write in the log
 - ❌ NO evaluation scripts — those run on laptop LATER

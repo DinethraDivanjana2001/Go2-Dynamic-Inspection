@@ -542,7 +542,9 @@ class IBVSActionServer(Node):
             goal_handle.publish_feedback(feedback)
 
             if err < self.IBVS_TOL_PX:
-                self.get_logger().info(f'  IBVS converged: err={err:.1f}px at iter {ibvs_iter}')
+                elapsed_s = round(time.time() - start_time, 2)
+                self.get_logger().info(f'  IBVS converged: err={err:.1f}px at iter {ibvs_iter} in {elapsed_s}s')
+                self._log_ibvs(ibvs_iter, elapsed_s, round(err, 2), round(pan, 1), round(tilt, 1), True)
                 return True
 
             # Angular errors
@@ -582,8 +584,24 @@ class IBVSActionServer(Node):
             ibvs_iter += 1
             time.sleep(dt)
 
-        self.get_logger().warn(f'  IBVS timeout after {self.IBVS_TOTAL_TIMEOUT}s')
+        elapsed_s = round(time.time() - start_time, 2)
+        self.get_logger().warn(f'  IBVS timeout after {elapsed_s}s')
+        self._log_ibvs(ibvs_iter, elapsed_s, round(self._ibvs_err, 2), round(pan, 1), round(tilt, 1), False)
         return False
+
+    def _log_ibvs(self, iters, elapsed_s, final_err, pan, tilt, converged):
+        """Write IBVS result row to ~/eval_dataset/ibvs_logs/convergence_log.csv."""
+        import csv
+        log_path = Path(os.path.expanduser('~/eval_dataset/ibvs_logs/convergence_log.csv'))
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        write_header = not log_path.exists()
+        with open(log_path, 'a', newline='') as f:
+            writer = csv.writer(f)
+            if write_header:
+                writer.writerow(['timestamp', 'ibvs_iters', 'elapsed_s', 'final_err_px',
+                                 'pan_deg', 'tilt_deg', 'converged'])
+            writer.writerow([time.strftime('%Y%m%d_%H%M%S'), iters, elapsed_s,
+                             final_err, pan, tilt, converged])
 
     # ---- Image capture (local save) ----------------------------------------
 

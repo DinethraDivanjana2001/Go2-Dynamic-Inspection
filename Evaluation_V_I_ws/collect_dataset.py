@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 collect_dataset.py  —  Visual Inspection Dataset Collector
-Run on Jetson as Terminal 4. Terminals 1,2,3 must already be running.
+Fully flexible: you enter angle, distance, occlusion, n_images yourself.
 
 python3 ~/Documents/Visual_Inspection_ws/evaluation/collect_dataset.py
 """
@@ -10,37 +10,32 @@ import os, sys, re, time, csv, shutil, subprocess
 from pathlib import Path
 from datetime import datetime
 
-# ── Paths ──────────────────────────────────────────────────────
-BASE      = Path.home() / 'Documents/Visual_Inspection_ws'
-EVAL      = BASE / 'evaluation'
-CAPTURES  = BASE / 'captures/inspection'
-LOG_CSV   = EVAL / 'capture_log.csv'
-SCRIPT    = BASE / 'test_scripts/test_full_pipeline.py'
-ROS_CMD   = (f'bash -c "source /opt/ros/humble/setup.bash && '
-             f'source {BASE}/inspection_ws/install/setup.bash && '
-             f'python3 {SCRIPT}"')
+# ── Paths ────────────────────────────────────────────────────────────────────
+BASE     = Path.home() / 'Documents/Visual_Inspection_ws'
+EVAL     = BASE / 'evaluation'
+CAPTURES = BASE / 'captures/inspection'
+LOG_CSV  = EVAL / 'capture_log.csv'
+SCRIPT   = BASE / 'test_scripts/test_full_pipeline.py'
+ROS_CMD  = (f'bash -c "source /opt/ros/humble/setup.bash && '
+            f'source {BASE}/inspection_ws/install/setup.bash && '
+            f'python3 {SCRIPT}"')
 
-# ── How many images per position ─────────────────────────────
-IMAGES_PER_ANGLE    = 10   # angle eval
-IMAGES_PER_DISTANCE = 10   # distance eval
-IMAGES_PER_GAUGE    = 3    # per reading position
-IMAGES_PER_VLM      = 10   # per scenario
-IMAGES_PER_OCCLUSION= 10   # per level
-IMAGES_PER_REF      = 5    # reference images
-
-# ── Colors ─────────────────────────────────────────────────────
+# ── Colors ───────────────────────────────────────────────────────────────────
 R='\033[1;31m'; G='\033[1;32m'; Y='\033[1;33m'
-B='\033[1;34m'; C='\033[1;36m'; W='\033[1m'; X='\033[0m'
+C='\033[1;36m'; W='\033[1m';    X='\033[0m'
 
-def div(c='─', n=60): print(c*n)
-def hdr(t, color=C): print(f'\n{color}{"═"*60}\n  {t}\n{"═"*60}{X}')
-def step(n, t): print(f'\n{W}  [{n}] {t}{X}')
-def ok(t):  print(f'{G}  ✓ {t}{X}')
-def bad(t): print(f'{R}  ✗ {t}{X}')
-def info(t):print(f'{Y}  → {t}{X}')
-def clr():  os.system('clear')
+def clr():    os.system('clear')
+def hdr(t):   print(f'\n{C}{"═"*58}\n  {t}\n{"═"*58}{X}')
+def ok(t):    print(f'{G}  ✓  {t}{X}')
+def bad(t):   print(f'{R}  ✗  {t}{X}')
+def info(t):  print(f'{Y}  →  {t}{X}')
+def div():    print('  ' + '─'*54)
+def prompt(q, d=''): 
+    hint = f' [{d}]' if d else ''
+    v = input(f'  {W}{q}{hint}: {X}').strip()
+    return v if v else d
 
-# ── CSV ────────────────────────────────────────────────────────
+# ── CSV ──────────────────────────────────────────────────────────────────────
 COLS = ['timestamp','folder','filename','object_type','distance_m',
         'angle_deg','angle_direction','occlusion_pct','n_objects',
         'ibvs_time_s','final_error_px','converged','ground_truth_value','notes']
@@ -54,22 +49,26 @@ def init_log():
 def log_row(**kw):
     kw.setdefault('timestamp', datetime.now().strftime('%Y-%m-%d_%H:%M:%S'))
     with open(LOG_CSV,'a',newline='') as f:
-        csv.DictWriter(f,fieldnames=COLS).writerow(kw)
+        csv.DictWriter(f, fieldnames=COLS).writerow(kw)
 
 def count_rows():
     if not LOG_CSV.exists(): return 0
-    return sum(1 for _ in open(LOG_CSV))-1
+    return max(0, sum(1 for _ in open(LOG_CSV)) - 1)
 
-# ── Run pipeline, parse ibvs stats ─────────────────────────────
+def count_in(subfolder):
+    d = EVAL / subfolder
+    if not d.exists(): return 0
+    return len(list(d.glob('*.jpg')))
+
+# ── Pipeline ─────────────────────────────────────────────────────────────────
 def run_and_parse():
-    """Run inspection pipeline, auto-parse IBVS stats from output."""
+    """Run inspection, auto-parse IBVS stats, return (img_path, time, error, converged)."""
     before = set()
     if CAPTURES.exists():
         before = {f for f in CAPTURES.rglob('img_*.jpg')}
 
-    info('Launching inspection pipeline...')
     ibvs_time, final_err, converged = 0.0, 0.0, False
-    output_lines = []
+    info('Running inspection pipeline...')
 
     try:
         proc = subprocess.Popen(ROS_CMD, shell=True,
@@ -77,26 +76,20 @@ def run_and_parse():
         for line in proc.stdout:
             l = line.strip()
             if l: print(f'     {l}')
-            output_lines.append(l)
-            # Parse converge line: "IBVS converged: err=7.8px at iter 38"
             m = re.search(r'IBVS converged.*err=([\d.]+)px.*iter\s+(\d+)', l)
             if m:
-                final_err   = float(m.group(1))
-                ibvs_time   = round(int(m.group(2)) * 0.066, 1)
-                converged   = True
-            # Parse timeout: "IBVS timeout after 40.0s"
-            m2 = re.search(r'IBVS timeout', l)
-            if m2:
-                converged = False
-                ibvs_time = 40.0
+                final_err = float(m.group(1))
+                ibvs_time = round(int(m.group(2)) * 0.066, 1)
+                converged = True
+            if re.search(r'IBVS timeout', l):
+                converged = False; ibvs_time = 40.0
             if 'success=True' in l or 'success=False' in l or 'RESULT' in l:
                 break
         proc.wait(timeout=5)
     except Exception as e:
         bad(f'Pipeline error: {e}')
 
-    # Find new image
-    time.sleep(1)
+    time.sleep(1.5)
     after = set()
     if CAPTURES.exists():
         after = {f for f in CAPTURES.rglob('img_*.jpg')}
@@ -106,375 +99,419 @@ def run_and_parse():
         newest = max(new, key=lambda f: f.stat().st_mtime)
         img01  = newest.parent / 'img_01.jpg'
         img_path = img01 if img01.exists() else newest
-
     return img_path, ibvs_time, final_err, converged
 
-def save_image(img_path, dest_dir, filename):
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dst = dest_dir / filename
+def save_img(img_path, dest: Path, fname: str) -> bool:
+    dest.mkdir(parents=True, exist_ok=True)
     if img_path and img_path.exists():
-        shutil.copy2(img_path, dst)
-        ok(f'Saved → {dst.relative_to(EVAL)}')
+        shutil.copy2(img_path, dest / fname)
+        ok(f'Saved  →  {(dest/fname).relative_to(EVAL)}')
         return True
-    bad(f'No image found to copy')
+    bad('No new image detected — check pipeline')
     return False
 
-def next_n(folder, prefix='img_'):
+def next_n(folder: Path, prefix='img_') -> int:
     existing = list(folder.glob(f'{prefix}*.jpg'))
-    if not existing: return 1
     nums = []
     for f in existing:
         m = re.search(r'(\d+)', f.stem.replace(prefix,''))
         if m: nums.append(int(m.group(1)))
     return max(nums)+1 if nums else 1
 
-def capture_loop(dest_folder, subfolder_name, obj_type, distance, angle_deg,
-                 angle_dir, occlusion, n_objects, n_images,
-                 ground_truth='N/A', ask_caption=False, filename_prefix='img_'):
-    """Generic capture loop used by all sessions."""
-    dest = EVAL / subfolder_name
-    dest.mkdir(parents=True, exist_ok=True)
-    captured = 0
+# ── Single capture ────────────────────────────────────────────────────────────
+def one_capture(dest: Path, fname_prefix: str, subfolder_name: str,
+                obj_type: str, distance: str, angle_deg: str, angle_dir: str,
+                occlusion: str, n_objects: str='1',
+                ground_truth: str='N/A', ask_caption: bool=False) -> bool:
+    n     = next_n(dest, prefix=fname_prefix)
+    fname = f'{fname_prefix}{n:02d}.jpg'
 
-    for i in range(n_images):
-        div()
-        print(f'{C}  Image {i+1} of {n_images}{X}')
-        input(f'{W}  ▶  Position robot. Press ENTER to capture...{X}')
-        print()
+    input(f'\n  {W}▶  Ready? Press ENTER to capture...{X}')
+    print()
+    img, ibvs_t, err_px, conv = run_and_parse()
+    saved = save_img(img, dest, fname)
 
-        img, ibvs_t, err_px, conv = run_and_parse()
-        n     = next_n(dest, prefix=filename_prefix)
-        fname = f'{filename_prefix}{n:02d}.jpg'
+    if conv:  ok(f'IBVS:  converged in {ibvs_t}s  |  final error {err_px}px')
+    else:     bad(f'IBVS:  DID NOT CONVERGE (timeout at 40s)')
 
-        if save_image(img, dest, fname):
-            captured += 1
+    caption = ''
+    if ask_caption:
+        caption = input(f'  {Y}Caption — describe exactly what camera sees: {X}').strip()
 
-        if conv:
-            ok(f'IBVS converged in {ibvs_t}s  |  final error = {err_px}px')
-        else:
-            bad(f'IBVS did NOT converge (timeout)')
+    log_row(folder=subfolder_name, filename=fname, object_type=obj_type,
+            distance_m=distance, angle_deg=angle_deg, angle_direction=angle_dir,
+            occlusion_pct=occlusion, n_objects=n_objects,
+            ibvs_time_s=ibvs_t, final_error_px=err_px, converged=conv,
+            ground_truth_value=ground_truth, notes=caption)
+    ok(f'Logged  ({count_rows()} total so far)')
+    return saved
 
-        caption = ''
-        if ask_caption:
-            caption = input(f'{Y}  Caption (1 sentence what camera sees): {X}').strip()
+# ── Sessions ──────────────────────────────────────────────────────────────────
 
-        log_row(folder=subfolder_name, filename=fname, object_type=obj_type,
-                distance_m=distance, angle_deg=angle_deg, angle_direction=angle_dir,
-                occlusion_pct=occlusion, n_objects=n_objects,
-                ibvs_time_s=ibvs_t, final_error_px=err_px, converged=conv,
-                ground_truth_value=ground_truth, notes=caption)
-
-        ok(f'Logged  [{captured}/{n_images} captured so far]')
-        print()
-
-    return captured
-
-# ── Sessions ────────────────────────────────────────────────────
+def ask_obj():
+    print(f'''
+  Objects:
+    1  fire_extinguisher
+    2  gauge
+    3  door
+    4  emergency_exit
+    5  main_cylinder''')
+    m = {'1':'fire_extinguisher','2':'gauge','3':'door',
+         '4':'emergency_exit','5':'main_cylinder'}
+    return m.get(prompt('Select object','1'), 'fire_extinguisher')
 
 def session_reference():
     hdr('SESSION 1 — REFERENCE IMAGES')
     print(f'''
-  PURPOSE: Gold-standard baseline images for ALL quality metrics.
-
-  SETUP:
-   • Pick 1 object
-   • Place robot at exactly 1 metre, facing it directly
-   • Good even lighting (no glare)
-
-  OBJECTS:  1=fire_extinguisher  2=gauge  3=door  4=emergency_exit
+  Gold-standard baseline for all quality metrics.
+  SETUP:  robot at 1m, directly facing object, good lighting.
+  Collect 5+ images per object type.
 ''')
-    objs = {'1':'fire_extinguisher','2':'gauge','3':'door','4':'emergency_exit'}
-    obj = objs.get(input('  Select object: ').strip(), 'fire_extinguisher')
-    prefix = obj.split('_')[0]+'_ref_'
+    obj = ask_obj()
 
-    info(f'Collecting {IMAGES_PER_REF} reference images for {obj}')
-    info('Robot: 1m distance, 0° angle, head-on')
+    while True:
+        dist  = prompt('Exact distance you measured (m)', '1.0')
+        n     = int(prompt('How many images at this position','5'))
+        prefix = obj.split('_')[0]+'_ref_'
+        dest   = EVAL / 'reference'
+        info(f'{n} × {obj} at {dist}m  →  evaluation/reference/')
 
-    capture_loop(EVAL/'reference', 'reference', obj,
-                 distance='1.0', angle_deg='0', angle_dir='center',
-                 occlusion='0', n_objects='1',
-                 n_images=IMAGES_PER_REF,
-                 filename_prefix=prefix)
+        for i in range(n):
+            div()
+            print(f'  {C}Capture {i+1}/{n}{X}')
+            one_capture(dest, prefix, 'reference', obj, dist, '0','center','0')
+
+        print(f'\n  {Y}Images in reference/: {count_in("reference")}{X}')
+        cont = prompt('Continue reference? (y=same obj / n=new obj / q=menu','y').lower()
+        if cont == 'q': break
+        if cont == 'n': obj = ask_obj()
 
 def session_angle():
-    hdr('SESSION 2 — ANGLE EVALUATION  (Professor Required)')
-    angles_h = ['0deg','15deg_L','15deg_R','30deg_L','30deg_R','45deg_L','45deg_R']
-    angles_v = ['0deg','15deg_up','15deg_down','30deg_up','30deg_down']
-
+    hdr('SESSION 2 — ANGLE EVALUATION')
     print(f'''
-  OBJECT: fire_extinguisher (keep it fixed on wall)
-  DISTANCE: 2m for all angles  ← DO NOT CHANGE
-  MOVE: only the robot changes angle
+  Covers full 180° horizontal + vertical angles.
+  Object: fire_extinguisher (fixed) — only robot moves.
 
-  HORIZONTAL ANGLES:
-    1: 0deg   (head-on, directly facing)
-    2: 15deg_L  3: 15deg_R
-    4: 30deg_L  5: 30deg_R
-    6: 45deg_L  7: 45deg_R
+  HOW TO ENTER ANGLES:
+    Horizontal: enter degrees (e.g. 15, 30, 45, 60, 90, 135)
+                direction: L (left) or R (right)
+    Vertical:   enter degrees (e.g. 15, 30)
+                direction: up or down
+    Head-on:    enter 0
 
-  VERTICAL ANGLES:
-    8: 0deg      9: 15deg_up   10: 15deg_down
-   11: 30deg_up  12: 30deg_down
+  DISTANCE RANGE:  Enter the actual measured distance each time.
+    e.g. 2.0m then 2.2m then 1.8m to cover ±20cm variation.
 ''')
-    all_angles = angles_h + angles_v
-    choice = int(input('  Select angle (1-12): ').strip()) - 1
-    ang = all_angles[choice]
+    obj = ask_obj()
 
-    if choice < len(angles_h):
-        subfolder = f'angle_eval/horizontal/{ang}'
-        angle_deg = re.sub(r'[^0-9]','',ang)
-        angle_dir = 'L' if 'L' in ang else ('R' if 'R' in ang else 'center')
-    else:
-        subfolder = f'angle_eval/vertical/{ang}'
-        angle_deg = re.sub(r'[^0-9]','',ang)
-        angle_dir = 'up' if 'up' in ang else ('down' if 'down' in ang else 'center')
+    while True:
+        angle_in  = prompt('Angle in degrees (e.g. 0, 15, 30, 45, 90)','0')
+        angle_dir = prompt('Direction (L / R / up / down / center)','center').lower()
+        dist      = prompt('Exact measured distance (m)','2.0')
+        n         = int(prompt('How many images at this position','10'))
 
-    info(f'Collecting {IMAGES_PER_ANGLE} images at {ang}')
-    info(f'Robot position: 2m away, {ang} offset')
+        # Build folder name
+        if angle_in == '0' or angle_dir == 'center':
+            sub_angle = '0deg'
+            folder    = 'angle_eval/horizontal/0deg'
+        elif angle_dir in ('up','down'):
+            sub_angle = f'{angle_in}deg_{angle_dir}'
+            folder    = f'angle_eval/vertical/{sub_angle}'
+        else:
+            sub_angle = f'{angle_in}deg_{angle_dir.upper()}'
+            folder    = f'angle_eval/horizontal/{sub_angle}'
 
-    capture_loop(EVAL/subfolder, subfolder, 'fire_extinguisher',
-                 distance='2.0', angle_deg=angle_deg, angle_dir=angle_dir,
-                 occlusion='0', n_objects='1',
-                 n_images=IMAGES_PER_ANGLE)
+        dest = EVAL / folder
+        info(f'{n} images | angle={sub_angle} | dist={dist}m | {folder}/')
+        print(f'  {Y}Position robot at {dist}m, {sub_angle} offset from object.{X}')
+
+        for i in range(n):
+            div()
+            print(f'  {C}Capture {i+1}/{n} | {sub_angle} | {dist}m{X}')
+            one_capture(dest, 'img_', folder, obj, dist,
+                        angle_in, angle_dir, '0')
+
+        print(f'\n  {Y}Images in {folder}/: {count_in(folder)}{X}')
+        cont = prompt('Next? (y=new angle / q=menu','y').lower()
+        if cont == 'q': break
 
 def session_distance():
     hdr('SESSION 3 — DISTANCE EVALUATION')
     print(f'''
-  OBJECT: gauge  (best for testing OCR readability)
-  ANGLE: 0° head-on  ← DO NOT CHANGE
-  CHANGE: only the robot distance
+  Find image quality vs distance.
+  Object: gauge (best for testing OCR at far distance)
+  Angle: 0° head-on (fixed)
 
-  1: 1m    2: 2m    3: 3m    4: 4m
-  (4m expected to show blurry images — that is intentional)
+  Measure the actual distance and type it.
+  Suggested: 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0 m
 ''')
-    dists = ['1','2','3','4']
-    choice = int(input('  Select distance (1-4): ').strip()) - 1
-    dist = dists[choice]
-    subfolder = f'distance_eval/{dist}m'
+    obj = ask_obj()
 
-    info(f'Collecting {IMAGES_PER_DISTANCE} images at {dist}m')
-    info('Robot: 0° angle, head-on facing gauge')
+    while True:
+        dist = prompt('Exact measured distance (m)','2.0')
+        n    = int(prompt('How many images','10'))
 
-    capture_loop(EVAL/subfolder, subfolder, 'gauge',
-                 distance=dist+'.0', angle_deg='0', angle_dir='center',
-                 occlusion='0', n_objects='1',
-                 n_images=IMAGES_PER_DISTANCE)
+        # Snap to nearest folder bracket
+        d = float(dist)
+        if d <= 1.25:   folder = 'distance_eval/1m'
+        elif d <= 1.75: folder = 'distance_eval/1.5m'
+        elif d <= 2.25: folder = 'distance_eval/2m'
+        elif d <= 2.75: folder = 'distance_eval/2.5m'
+        elif d <= 3.25: folder = 'distance_eval/3m'
+        elif d <= 3.75: folder = 'distance_eval/3.5m'
+        else:           folder = 'distance_eval/4m'
+
+        # Create folder with actual measured value in name
+        folder = f'distance_eval/{dist}m'
+        dest   = EVAL / folder
+        info(f'{n} images at {dist}m  →  evaluation/{folder}/')
+
+        for i in range(n):
+            div()
+            print(f'  {C}Capture {i+1}/{n} | distance={dist}m | 0° head-on{X}')
+            one_capture(dest, 'img_', folder, obj, dist, '0','center','0')
+
+        print(f'\n  {Y}Images in {folder}/: {count_in(folder)}{X}')
+        cont = prompt('Next distance? (y / q=menu','y').lower()
+        if cont == 'q': break
 
 def session_gauge():
     hdr('SESSION 4 — GAUGE ACCURACY GROUND TRUTH')
     print(f'''
-  PURPOSE: True reading value for EVERY image — used for MAE/RMSE eval.
+  Collect images at KNOWN gauge readings for MAE/RMSE evaluation.
+  You need physical equipment (pressure gauge / water gauge).
+  SKIP with q if no gauge available.
 
-  SETUP:
-   • Real pressure/water/compound gauge
-   • Set pointer to a known position (use tape to fix pointer)
-   • Write down the EXACT true reading before each set
-   • Distance: 2m, Angle: 0°
-
-  READING POSITIONS TO COLLECT:
-   • Low   (~10% of scale)
-   • 25%   of scale
-   • Mid   (50%)
-   • 75%   of scale
-   • High  (~90% of scale)
-   → 3 images per position = 15 images total minimum
+  Setup: manually set pointer to a known value, tape it in place.
+  Distance: 2m | Angle: 0°
 ''')
-    true_val = input(f'  {W}Enter TRUE gauge reading (e.g. 2.5): {X}').strip()
-    info(f'Collecting {IMAGES_PER_GAUGE} images with true value = {true_val}')
-    info('Robot: 2m distance, 0° angle')
+    while True:
+        true_val = prompt('True gauge reading (e.g. 2.5) or q to exit','')
+        if true_val.lower() == 'q': break
+        dist = prompt('Exact measured distance (m)','2.0')
+        n    = int(prompt('How many images at this reading','3'))
+        folder = 'gauge_accuracy'
+        dest   = EVAL / folder
+        info(f'{n} images | gauge={true_val} | {dist}m')
 
-    for i in range(IMAGES_PER_GAUGE):
-        div()
-        print(f'{C}  Image {i+1} of {IMAGES_PER_GAUGE} | gauge reading = {true_val}{X}')
-        input(f'{W}  ▶  Position robot. Press ENTER to capture...{X}')
-
-        img, ibvs_t, err_px, conv = run_and_parse()
-        fname = f'gauge_{true_val}_{2}m_n{i+1}.jpg'
-        dest  = EVAL / 'gauge_accuracy'
-
-        if save_image(img, dest, fname):
-            if conv: ok(f'IBVS {ibvs_t}s | err {err_px}px')
-            else:    bad('IBVS timeout')
-            log_row(folder='gauge_accuracy', filename=fname, object_type='gauge',
-                    distance_m='2.0', angle_deg='0', angle_direction='center',
+        for i in range(n):
+            div()
+            print(f'  {C}Capture {i+1}/{n} | gauge reading = {true_val}{X}')
+            fname = f'gauge_{true_val}_{dist}m_n{next_n(dest, f"gauge_{true_val}_")}.jpg'
+            # use direct save
+            input(f'\n  {W}▶  Ready? Press ENTER to capture...{X}')
+            print()
+            img, ibvs_t, err_px, conv = run_and_parse()
+            if save_img(img, dest, fname):
+                if conv: ok(f'IBVS {ibvs_t}s | err {err_px}px')
+                else:    bad('IBVS timeout')
+            log_row(folder=folder, filename=fname, object_type='gauge',
+                    distance_m=dist, angle_deg='0', angle_direction='center',
                     occlusion_pct='0', n_objects='1',
                     ibvs_time_s=ibvs_t, final_error_px=err_px, converged=conv,
-                    ground_truth_value=true_val,
-                    notes=f'gauge reading {true_val}')
-            ok('Logged')
+                    ground_truth_value=true_val, notes=f'gauge={true_val}')
+            ok(f'Logged ({count_rows()} total)')
+
+        cont = prompt('Another reading? (y / q=menu','y').lower()
+        if cont == 'q': break
 
 def session_vlm():
     hdr('SESSION 5 — VLM PASS/FAIL IMAGES')
-    folders = {
-        '1': ('fire_ext_pass',  'fire_extinguisher', 'PASS'),
-        '2': ('fire_ext_fail',  'fire_extinguisher', 'FAIL'),
-        '3': ('exit_pass',      'emergency_exit',    'PASS'),
-        '4': ('exit_fail',      'emergency_exit',    'FAIL'),
-        '5': ('door_pass',      'door',              'PASS'),
-        '6': ('door_fail',      'door',              'FAIL'),
-        '7': ('cylinder_pass',  'main_cylinder',     'PASS'),
-        '8': ('cylinder_fail',  'main_cylinder',     'FAIL'),
-    }
-    setups = {
-        '1': 'Extinguisher on wall, NOTHING blocking it',
-        '2': 'Place large box/chair DIRECTLY in front blocking access',
-        '3': 'Door/exit with COMPLETELY clear walkway',
-        '4': 'Stack 2-3 chairs or boxes blocking the door',
-        '5': 'Regular door — open state',
-        '6': 'Regular door — blocked by objects',
-        '7': 'Machinery/cylinder — floor dry, no leak',
-        '8': 'Pour small amount of water near cylinder base (simulates oil leak)',
-    }
-    captions = {
-        '1': 'fire extinguisher on wall bracket, fully accessible, clear path in front',
-        '2': 'fire extinguisher on wall, large cardboard box blocking access path',
-        '3': 'emergency exit door with completely clear walkway, no obstructions',
-        '4': 'emergency exit door blocked by stacked chairs placed in front',
-        '5': 'door in open state, access clear',
-        '6': 'door blocked by objects',
-        '7': 'cylinder area, floor dry and clean, no leak visible',
-        '8': 'water puddle on floor near cylinder base simulating oil leak',
+    scenarios = {
+        '1': ('fire_ext_pass',  'fire_extinguisher', 'PASS',
+              'Extinguisher on wall, NOTHING blocking it'),
+        '2': ('fire_ext_fail',  'fire_extinguisher', 'FAIL',
+              'Place large box/chair DIRECTLY in front blocking access'),
+        '3': ('exit_pass',      'emergency_exit',    'PASS',
+              'Door/exit with completely CLEAR walkway'),
+        '4': ('exit_fail',      'emergency_exit',    'FAIL',
+              'Stack 2-3 chairs or boxes BLOCKING the door'),
+        '5': ('door_pass',      'door',              'PASS',
+              'Regular door — open or closed, clear state'),
+        '6': ('door_fail',      'door',              'FAIL',
+              'Door blocked by objects'),
+        '7': ('cylinder_pass',  'main_cylinder',     'PASS',
+              'Machinery/cylinder — floor dry, no leak'),
+        '8': ('cylinder_fail',  'main_cylinder',     'FAIL',
+              'Water on floor near cylinder (simulates oil leak)'),
     }
     print()
-    for k,(f,o,d) in folders.items():
-        print(f'  {k}: {f:20s}  ({o}, expected={d})')
+    for k,(f,o,d,s) in scenarios.items():
+        mark = G+'PASS'+X if d=='PASS' else R+'FAIL'+X
+        print(f'  {k}: {f:20s}  {mark}  — {s}')
     print()
-    choice = input('  Select scenario: ').strip()
-    if choice not in folders:
-        bad('Invalid choice'); return
 
-    folder_name, obj_type, expected = folders[choice]
+    choice = prompt('Select scenario','1')
+    if choice not in scenarios:
+        bad('Invalid'); return
+    folder_name, obj_type, expected, setup = scenarios[choice]
     subfolder = f'vlm_eval/{folder_name}'
+    dist = prompt('Distance (m)','2.0')
+    n    = int(prompt('How many images','10'))
 
-    print(f'''
-{Y}  SETUP FOR THIS SCENARIO:
-  {setups[choice]}{X}
+    print(f'\n  {Y}SETUP: {setup}{X}')
+    input('  Set up scene, position robot. Press ENTER when ready...')
 
-  Distance: 2m | Angle: 0°
-  Caption suggestion: "{captions[choice]}"
-  (edit caption when asked if needed)
-''')
-    input('  Press ENTER when scene is set up...')
-    info(f'Collecting {IMAGES_PER_VLM} images for {folder_name}')
+    dest = EVAL / subfolder
+    info(f'{n} images  →  evaluation/{subfolder}/')
+    print(f'  {Y}Write 1-sentence caption after each capture.{X}\n')
 
-    capture_loop(EVAL/subfolder, subfolder, obj_type,
-                 distance='2.0', angle_deg='0', angle_dir='center',
-                 occlusion='0', n_objects='1',
-                 n_images=IMAGES_PER_VLM,
-                 ground_truth=expected,
-                 ask_caption=True,
-                 filename_prefix=f'{folder_name}_')
+    for i in range(n):
+        div()
+        print(f'  {C}Capture {i+1}/{n} | {folder_name}{X}')
+        one_capture(dest, f'{folder_name}_', subfolder, obj_type,
+                    dist, '0','center','0','1', expected, ask_caption=True)
+
+    print(f'\n  {Y}Images in {subfolder}/: {count_in(subfolder)}{X}')
+    cont = prompt('Collect more for this scenario? (y / q=menu','q').lower()
+    if cont == 'y':
+        n2 = int(prompt('How many more','5'))
+        for i in range(n2):
+            div()
+            print(f'  {C}Extra capture {i+1}/{n2}{X}')
+            one_capture(dest, f'{folder_name}_', subfolder, obj_type,
+                        dist,'0','center','0','1', expected, ask_caption=True)
 
 def session_occlusion():
     hdr('SESSION 6 — OCCLUSION EVALUATION')
-    levels = {'1':('0pct','0','Nothing covering object — full visibility'),
-              '2':('25pct','25','Cover BOTTOM QUARTER with tape/cardboard'),
-              '3':('50pct','50','Cover BOTTOM HALF with tape/cardboard'),
-              '4':('75pct','75','Cover THREE-QUARTERS (expect detection to fail)')}
-    print()
-    for k,(f,p,d) in levels.items():
-        print(f'  {k}: {f}  — {d}')
-    print()
-    choice = input('  Select occlusion level: ').strip()
-    if choice not in levels:
-        bad('Invalid choice'); return
-
-    folder_name, pct, setup_desc = levels[choice]
-    subfolder = f'occlusion/{folder_name}'
-
     print(f'''
-{Y}  SETUP:
-  Object:   fire_extinguisher (2m away, 0° angle)
-  Occlusion: {setup_desc}{X}
-''')
-    input('  Apply occlusion to object. Press ENTER when ready...')
-    info(f'Collecting {IMAGES_PER_OCCLUSION} images at {folder_name} occlusion')
+  How much occlusion can the system tolerate?
+  Object: fire_extinguisher | Distance: 2m | Angle: 0°
 
-    capture_loop(EVAL/subfolder, subfolder, 'fire_extinguisher',
-                 distance='2.0', angle_deg='0', angle_dir='center',
-                 occlusion=pct, n_objects='1',
-                 n_images=IMAGES_PER_OCCLUSION)
+  Cover the object with tape/cardboard.
+  Enter the actual percentage you covered (0, 10, 25, 33, 50, 66, 75, 90...)
+''')
+    obj = ask_obj()
+
+    while True:
+        pct    = prompt('Occlusion percentage you applied (e.g. 0, 25, 50, 75)','0')
+        dist   = prompt('Exact measured distance (m)','2.0')
+        n      = int(prompt('How many images','10'))
+        folder = f'occlusion/{pct}pct'
+        dest   = EVAL / folder
+
+        print(f'\n  {Y}Apply {pct}% occlusion to object now.{X}')
+        input('  Press ENTER when ready...')
+        info(f'{n} images | occlusion={pct}% | dist={dist}m  →  evaluation/{folder}/')
+
+        for i in range(n):
+            div()
+            print(f'  {C}Capture {i+1}/{n} | occlusion={pct}%{X}')
+            one_capture(dest, 'img_', folder, obj, dist,'0','center', pct)
+
+        print(f'\n  {Y}Images in {folder}/: {count_in(folder)}{X}')
+        cont = prompt('Next occlusion level? (y / q=menu','y').lower()
+        if cont == 'q': break
 
 def session_multi():
-    hdr('SESSION 7 — MULTI-OBJECT')
+    hdr('SESSION 7 — MULTI-OBJECT SCENES')
+    print(f'''
+  Test ByteTrack with multiple objects in view.
+  Scenes to try:
+    1: 2 same-class side by side (2 fire extinguishers)
+    2: Mixed class (1 gauge + 1 fire extinguisher)
+    3: 1 front + 1 back (tests front/back zone detection)
+    4: 3 objects across a panel
+''')
     scenes = {
-        '1': ('2_objects', '2 fire extinguishers side by side'),
-        '2': ('2_objects', '1 gauge + 1 fire extinguisher in same view'),
-        '3': ('2_objects', '1 object front half + 1 object back half of Insta360'),
-        '4': ('3_objects', '3 gauges across a panel'),
+        '1':('2 fire_extinguishers side by side','2_objects','fire_extinguisher','2'),
+        '2':('1 gauge + 1 fire_ext','2_objects','mixed','2'),
+        '3':('1 front + 1 back zone','2_objects','fire_extinguisher','2'),
+        '4':('3 objects across panel','3_objects','gauge','3'),
     }
+    for k,(d,f,o,n) in scenes.items(): print(f'  {k}: {d}')
     print()
-    for k,(f,d) in scenes.items():
-        print(f'  {k}: {d}')
-    print()
-    choice = input('  Select scene: ').strip()
-    folder_name, desc = scenes.get(choice,('2_objects','multi-object scene'))
-    n_obj = '3' if '3_objects' in folder_name else '2'
+    choice = prompt('Select scene','1')
+    if choice not in scenes: bad('Invalid'); return
 
-    print(f'\n{Y}  SETUP: {desc}{X}\n')
-    input('  Arrange the scene. Press ENTER when ready...')
+    desc, folder_key, obj, n_obj = scenes[choice]
+    folder    = f'multi_object/{folder_key}'
+    dist      = prompt('Distance (m)','2.0')
+    n         = int(prompt('How many images','5'))
+    dest      = EVAL / folder
 
-    capture_loop(EVAL/f'multi_object/{folder_name}',
-                 f'multi_object/{folder_name}', desc,
-                 distance='2.0', angle_deg='0', angle_dir='center',
-                 occlusion='0', n_objects=n_obj, n_images=5)
+    print(f'\n  {Y}Set up: {desc}{X}')
+    input('  Press ENTER when ready...')
 
-# ── Main menu ────────────────────────────────────────────────────
+    for i in range(n):
+        div()
+        print(f'  {C}Capture {i+1}/{n} | {desc}{X}')
+        one_capture(dest, 'img_', folder, obj, dist,'0','center','0', n_obj)
 
-MENU = [
-    ('1', 'Reference images      (1m, 0°, 5 images per object)'),
-    ('2', 'Angle evaluation      (2m fixed, 10 images per angle)'),
-    ('3', 'Distance evaluation   (0° fixed, 10 images per distance)'),
-    ('4', 'Gauge ground truth    (3 images per reading value)'),
-    ('5', 'VLM PASS/FAIL images  (10 images per scenario)'),
-    ('6', 'Occlusion evaluation  (10 images per level)'),
-    ('7', 'Multi-object scenes   (5 images per scene)'),
-    ('q', 'Quit'),
-]
+    print(f'\n  {Y}Images in {folder}/: {count_in(folder)}{X}')
+
+def show_summary():
+    hdr('CURRENT COLLECTION STATUS')
+    sections = [
+        ('reference',                   'Reference images'),
+        ('angle_eval/horizontal',       'Angle H — all'),
+        ('angle_eval/vertical',         'Angle V — all'),
+        ('distance_eval',               'Distance — all'),
+        ('gauge_accuracy',              'Gauge ground truth'),
+        ('vlm_eval/fire_ext_pass',      'VLM fire_ext PASS'),
+        ('vlm_eval/fire_ext_fail',      'VLM fire_ext FAIL'),
+        ('vlm_eval/exit_pass',          'VLM exit PASS'),
+        ('vlm_eval/exit_fail',          'VLM exit FAIL'),
+        ('vlm_eval/door_pass',          'VLM door PASS'),
+        ('occlusion',                   'Occlusion — all'),
+        ('multi_object',                'Multi-object'),
+    ]
+    for path, label in sections:
+        d = EVAL / path
+        if d.exists():
+            imgs = len(list(d.rglob('*.jpg')))
+            bar = G if imgs >= 10 else (Y if imgs > 0 else R)
+            print(f'  {bar}{"■"*min(imgs,30):30s}{X}  {label:<28} {imgs} images')
+        else:
+            print(f'  {R}{"□"*30}{X}  {label:<28} 0 images')
+    print(f'\n  Total logged: {count_rows()} rows in CSV')
+
+# ── Main menu ─────────────────────────────────────────────────────────────────
 
 def main():
     init_log()
+    sessions = {
+        '1': ('Reference images',            session_reference),
+        '2': ('Angle evaluation (any angle)',  session_angle),
+        '3': ('Distance evaluation',          session_distance),
+        '4': ('Gauge ground truth',           session_gauge),
+        '5': ('VLM PASS/FAIL images',         session_vlm),
+        '6': ('Occlusion evaluation',         session_occlusion),
+        '7': ('Multi-object scenes',          session_multi),
+        's': ('Show collection status',       show_summary),
+    }
+
     while True:
         clr()
-        hdr('VISUAL INSPECTION — DATASET COLLECTION', color=B)
+        hdr('VISUAL INSPECTION — DATASET COLLECTION')
         print(f'''
-  {W}MAKE SURE THESE ARE ALREADY RUNNING:{X}
-    Terminal 1: ros2 run visual_inspection_ros camera_node
-    Terminal 2: ros2 run visual_inspection_ros servo_node
-    Terminal 3: ros2 run visual_inspection_ros ibvs_action_server
+  {W}MAKE SURE T1, T2, T3 ARE RUNNING FIRST:{X}
+    T1: ros2 run visual_inspection_ros camera_node
+    T2: ros2 run visual_inspection_ros servo_node
+    T3: ros2 run visual_inspection_ros ibvs_action_server
 
-  {Y}Images logged so far: {count_rows()}{X}
-  {Y}Save location: {EVAL}{X}
+  {Y}Total images logged: {count_rows()}{X}
 ''')
-        div()
-        print(f'  {W}SELECT SESSION:{X}')
-        for k,label in MENU:
+        for k,(label,_) in sessions.items():
             print(f'    {C}{k}{X}: {label}')
+        print(f'    {C}q{X}: Quit')
         print()
-        choice = input('  ▶ Your choice: ').strip().lower()
 
-        fn = {'1':session_reference,'2':session_angle,'3':session_distance,
-              '4':session_gauge,    '5':session_vlm, '6':session_occlusion,
-              '7':session_multi}.get(choice)
-
+        choice = input(f'  {W}▶  Select session: {X}').strip().lower()
         if choice == 'q':
             break
-        elif fn:
-            fn()
-            print()
-            input(f'\n{G}  Session done! Press ENTER to return to menu...{X}')
+        elif choice in sessions:
+            sessions[choice][1]()
+            input(f'\n{G}  Done! Press ENTER to return to menu...{X}')
         else:
-            bad('Invalid choice')
-            time.sleep(1)
+            bad('Invalid choice'); time.sleep(1)
 
     clr()
-    hdr('COLLECTION COMPLETE', color=G)
-    print(f'  Log file : {LOG_CSV}')
-    print(f'  Images   : {EVAL}')
-    print(f'  Total    : {count_rows()} images logged\n')
-    print('  SCP to laptop:')
+    hdr('SESSION ENDED')
+    show_summary()
+    print(f'\n  {W}SCP to laptop:{X}')
     print(f'  scp -r rgen@192.168.8.181:{EVAL} \\')
-    print('      /home/dinethra/Jetson_orin_nano/Evaluation_V_I_ws/eval_dataset/')
+    print(f'      /home/dinethra/Jetson_orin_nano/Evaluation_V_I_ws/eval_dataset/')
 
 if __name__ == '__main__':
     main()

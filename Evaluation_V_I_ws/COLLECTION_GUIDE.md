@@ -1,211 +1,126 @@
-# Visual Inspection — Data Collection Guide
-**Version:** 3.0 — Everything automatic via collect_dataset.py
+# Data Collection Guide
 
 ---
 
-## STEP 1 — Start Pipeline (3 terminals, same every session)
+## Before You Start
+
+Folders already created at:
+```
+~/Documents/Visual_Inspection_ws/evaluation/
+```
+
+Script already at:
+```
+~/Documents/Visual_Inspection_ws/evaluation/collect_dataset.py
+```
+
+---
+
+## Every Session — Same 4 Commands
 
 ```bash
 # Terminal 1
-source /opt/ros/humble/setup.bash
-source ~/Documents/Visual_Inspection_ws/inspection_ws/install/setup.bash
+source /opt/ros/humble/setup.bash && source ~/Documents/Visual_Inspection_ws/inspection_ws/install/setup.bash
 ros2 run visual_inspection_ros camera_node
 ```
 
 ```bash
 # Terminal 2
-source /opt/ros/humble/setup.bash
-source ~/Documents/Visual_Inspection_ws/inspection_ws/install/setup.bash
+source /opt/ros/humble/setup.bash && source ~/Documents/Visual_Inspection_ws/inspection_ws/install/setup.bash
 ros2 run visual_inspection_ros servo_node
 ```
 
 ```bash
-# Terminal 3 — watch this for IBVS time and error
-source /opt/ros/humble/setup.bash
-source ~/Documents/Visual_Inspection_ws/inspection_ws/install/setup.bash
+# Terminal 3
+source /opt/ros/humble/setup.bash && source ~/Documents/Visual_Inspection_ws/inspection_ws/install/setup.bash
 ros2 run visual_inspection_ros ibvs_action_server
 ```
 
----
-
-## STEP 2 — Run Collection Script (Terminal 4, only command you need)
-
 ```bash
+# Terminal 4 — THIS IS THE ONLY ONE YOU INTERACT WITH
 python3 ~/Documents/Visual_Inspection_ws/evaluation/collect_dataset.py
 ```
 
-**You will see:**
-```
-═══════════════════════════════════════════════
-  VISUAL INSPECTION — DATASET COLLECTION
-═══════════════════════════════════════════════
-  1: Reference images (1m, 0°)
-  2: Angle evaluation
-  3: Distance evaluation
-  4: Gauge accuracy ground truth
-  5: VLM PASS/FAIL images
-  6: Occlusion evaluation
-  7: Multi-object scenes
+---
 
-Select session type:
-```
+## What the Script Does
 
-**What the script does automatically:**
-- Runs the inspection
-- Detects the new captured image in captures/
-- Copies it to the correct evaluation folder
-- Writes a row to capture_log.csv
-- Loops for the next image
-
-**Your only jobs:**
-1. Pick session type from menu
-2. Move robot to position
-3. Press Enter
-4. Read ibvs_time and error from Terminal 3 (type them in when asked)
-5. Type caption for VLM images (1 sentence)
+- Prints exactly what to set up
+- Press **ENTER** to trigger each capture
+- Runs inspection automatically
+- Saves image to correct folder automatically
+- Writes to `capture_log.csv` automatically
+- Auto-detects IBVS time and error — you never type it
 
 ---
 
-## WHAT EACH SESSION COLLECTS
+## Sessions — What to Collect
 
-### Session 1 — Reference Images
-- **When asked:** pick object (fire_ext / gauge / door)
-- **Setup:** robot at 1m, directly facing object, good lighting
-- **Repeat:** 5 times per object
-- **Purpose:** baseline images for ALL quality metrics
-
-### Session 2 — Angle Evaluation ← Professor required
-- **When asked:** pick angle from menu (0°, 15°L, 15°R, 30°L, 30°R, 45°L, 45°R)
-- **Setup:** robot at 2m, positioned at that angle
-- **Object:** fire extinguisher (fixed position, only robot moves)
-- **Repeat:** 5 images per angle position
-- **Order to collect:** 0° → 15°L → 15°R → 30°L → 30°R → (45° if time)
-
-### Session 3 — Distance Evaluation
-- **When asked:** pick distance (1m / 2m / 3m / 4m)
-- **Setup:** robot at 0° head-on, only distance changes
-- **Object:** GAUGE (most important — checking OCR readability at distance)
-- **Repeat:** 5 images per distance
-- **Note when asked:** can you read gauge numbers? (y/n)
-
-### Session 4 — Gauge Accuracy Ground Truth
-- **Before starting:** set gauge pointer to a known position (tape if needed)
-- **When asked:** type the TRUE reading value (e.g. `2.5`)
-- **Target:** 5 positions × 3 images = 15 images total
-  - Low (10% of scale)
-  - 25% of scale
-  - Mid (50%)
-  - 75% of scale
-  - High (90%)
-- **CRITICAL:** type true value correctly when asked — this is the ground truth for MAE/RMSE
-
-### Session 5 — VLM PASS/FAIL Images
-- **When asked:** pick scenario from menu:
-  - `fire_ext_pass` → extinguisher on wall, nothing blocking
-  - `fire_ext_fail` → large box/chair placed directly in front blocking it
-  - `exit_pass` → door with completely clear walkway
-  - `exit_fail` → stack chairs/boxes blocking the door
-  - `door_pass` → open door OR closed door (both are PASS)
-- **Caption when asked:** write 1 sentence describing exactly what camera sees
-  - Example PASS: `"Red fire extinguisher on wall bracket, fully accessible, clear path"`
-  - Example FAIL: `"Red fire extinguisher on wall, large cardboard box blocking access"`
-  - Example EXIT FAIL: `"Emergency exit door blocked by 3 stacked chairs in front"`
-- **Repeat:** 5 images per scenario
-
-### Session 6 — Occlusion Evaluation
-- **When asked:** pick occlusion level (0% / 25% / 50% / 75%)
-- **Setup:** cover that fraction of object with tape or cardboard
-  - 0% = nothing covering
-  - 25% = tape over bottom quarter
-  - 50% = tape over bottom half
-  - 75% = cover three-quarters (expect detection to fail — that's OK)
-- **Object:** fire extinguisher | Distance: 2m | Angle: 0°
-- **Repeat:** 5 images per occlusion level
-
-### Session 7 — Multi-object (if time)
-- **When asked:** enter number of objects and description
-- **Setup:** 2 extinguishers side by side, or mixed gauge+extinguisher
-- **Repeat:** 3 runs per scene
+| # | Session | Object | Distance | Angle | Images |
+|---|---------|--------|----------|-------|--------|
+| 1 | Reference | fire_ext, gauge, door | 1m | 0° head-on | 5 each |
+| 2 | Angle | fire_extinguisher | 2m fixed | 0°,15°L,15°R,30°L,30°R,45°L,45°R | 10 each |
+| 3 | Distance | gauge | 1m,2m,3m,4m | 0° fixed | 10 each |
+| 4 | Gauge ground truth | gauge | 2m | 0° | 3 per reading (15 total) |
+| 5 | VLM PASS/FAIL | fire_ext, exit, door | 2m | 0° | 10 each scenario |
+| 6 | Occlusion | fire_extinguisher | 2m | 0° | 10 per level |
+| 7 | Multi-object | mixed | 2m | 0° | 5 per scene |
 
 ---
 
-## READING IBVS STATS FROM TERMINAL 3
+## Extra Action For VLM Images Only
 
-After each inspection, Terminal 3 shows:
-```
-  IBVS converged: err=7.8px at iter 38
-```
-- **ibvs_time_s** = iter × 0.066 → 38 × 0.066 = **2.5 seconds**
-- **final_error_px** = **7.8**
-- **converged** = y
+When collecting VLM images (Session 5), after each capture the script asks:
 
-If it timed out:
 ```
-  IBVS timeout after 40.0s
+Caption (1 sentence what camera sees):
 ```
-- converged = n
-- ibvs_time_s = 40
-- final_error_px = 0
+
+Write exactly what the camera sees. Examples:
+- PASS: `fire extinguisher on wall bracket, fully accessible, clear path`
+- FAIL: `fire extinguisher on wall, large cardboard box blocking access`
+- EXIT FAIL: `emergency exit door blocked by stacked chairs`
 
 ---
 
-## AFTER ALL SESSIONS — COPY TO LAPTOP
+## Gauge Ground Truth (Session 4)
+
+Before each set of 3 images, script asks:
+```
+Enter TRUE gauge reading (e.g. 2.5):
+```
+
+Collect at 5 positions:
+1. Low reading (~10% of scale)
+2. 25% of scale
+3. Mid (50%)
+4. 75% of scale
+5. High (~90% of scale)
+
+= **15 images total minimum**
+
+---
+
+## After All Sessions — Copy to Laptop
 
 ```bash
-# Run on LAPTOP to pull everything
+# Run on LAPTOP
 scp -r rgen@192.168.8.181:~/Documents/Visual_Inspection_ws/evaluation/ \
     /home/dinethra/Jetson_orin_nano/Evaluation_V_I_ws/eval_dataset/
 ```
 
 ---
 
-## COLLECTION CHECKLIST
+## Checklist
 
 ```
-SESSION 1 — REFERENCE (1m, 0°, best lighting)
-[ ] fire_extinguisher — 5 images
-[ ] gauge             — 5 images
-[ ] door              — 5 images
-
-SESSION 2 — ANGLE (fire_ext, 2m fixed, move robot)
-[ ] 0°   — 5 images
-[ ] 15°L — 5 images
-[ ] 15°R — 5 images
-[ ] 30°L — 5 images
-[ ] 30°R — 5 images
-[ ] 45°L — 5 images (if time)
-[ ] 45°R — 5 images (if time)
-[ ] Vertical angles — 3 images each (if time)
-
-SESSION 3 — DISTANCE (gauge, 0° fixed)
-[ ] 1m — 5 images
-[ ] 2m — 5 images
-[ ] 3m — 5 images
-[ ] 4m — 5 images
-
-SESSION 4 — GAUGE GROUND TRUTH (2m, 0°)
-[ ] low reading  × 3 images (true value written)
-[ ] 25% of scale × 3 images
-[ ] 50% mid      × 3 images
-[ ] 75% scale    × 3 images
-[ ] high reading × 3 images
-
-SESSION 5 — VLM IMAGES (captions written for each)
-[ ] fire_ext_pass — 5 images
-[ ] fire_ext_fail — 5 images
-[ ] exit_pass     — 5 images
-[ ] exit_fail     — 5 images
-[ ] door_pass     — 3 images open + 3 closed
-
-SESSION 6 — OCCLUSION (fire_ext, 2m, 0°)
-[ ] 0%  — 5 images
-[ ] 25% — 5 images
-[ ] 50% — 5 images
-[ ] 75% — 5 images
-
-SESSION 7 — MULTI-OBJECT (if time)
-[ ] 2 objects — 3 runs
-[ ] mixed     — 3 runs
+[ ] Session 1 — Reference:  fire_ext + gauge + door  (5 each)
+[ ] Session 2 — Angle:      0° 15°L 15°R 30°L 30°R  (10 each)
+[ ] Session 2 — Angle:      45°L 45°R + vertical     (if time)
+[ ] Session 3 — Distance:   1m 2m 3m 4m gauge        (10 each)
+[ ] Session 4 — Gauge GT:   5 reading positions × 3  (15 total)
+[ ] Session 5 — VLM:        fire_ext pass+fail        (10 each)
+[ ] Session 5 — VLM:        exit pass+fail, door      (10 each)
+[ ] Session 6 — Occlusion:  0% 25% 50% 75%           (10 each)
+[ ] Session 7 — Multi-obj:  (if time)
 ```
-
-*inspect_ws untouched — evaluation/ folder is completely separate*

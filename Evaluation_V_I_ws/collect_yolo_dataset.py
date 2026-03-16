@@ -258,6 +258,23 @@ def main():
     insta_idx = find_camera('Insta360')
     logi_idx  = find_camera('Logitech')
 
+    # Fallback: sysfs name for Logitech C920 is "HD Pro Webcam C920" (no "logitech" word)
+    # Try /dev/video0 and /dev/video1 directly, skip whichever insta360 already claimed
+    if logi_idx < 0:
+        for try_idx in [0, 1, 2, 3]:
+            if try_idx == insta_idx:
+                continue
+            dev = f'/dev/video{try_idx}'
+            if not os.path.exists(dev):
+                continue
+            cap_test = cv2.VideoCapture(dev)
+            if cap_test.isOpened():
+                ret, frm = cap_test.read()
+                cap_test.release()
+                if ret and frm is not None and frm.size > 0:
+                    logi_idx = try_idx
+                    break
+
     cap_insta, cap_logi = None, None
 
     if insta_idx >= 0:

@@ -393,43 +393,13 @@ class IBVSActionServer(Node):
         return front, back, frame, debug
 
     def _detect_logi(self, conf=None):
-        """Detect on Logitech. Returns (dets, raw_frame, annotated_frame).
-        
-        Filtering (fixes false positives after TensorRT conversion):
-         - Min box area 3000px²  → rejects nozzle-only tiny detections
-         - Aspect ratio h/w > 0.9 → rejects wide square objects (fire cabinet)
-         - Sorted by area descending → full-body detection wins over partial
-        """
+        """Detect on Logitech. Returns (dets, raw_frame, annotated_frame)."""
         frame = self._get_logi()
         if frame is None:
             return [], None, None
         c = conf or self.CONF_IBVS
         with self._yolo_lock:
-            dets_raw, dbg = self._detect_raw(frame, c)
-
-            # ── Size + aspect-ratio filter ─────────────────────────────────
-            filtered = []
-            for d in dets_raw:
-                cx, cy, x1, y1, x2, y2 = d[0], d[1], d[2], d[3], d[4], d[5]
-                w_box = max(x2 - x1, 1)
-                h_box = max(y2 - y1, 1)
-                area  = w_box * h_box
-                ratio = h_box / w_box          # fire extinguisher: tall → ratio > 1
-
-                if area < 3000:                # too tiny → nozzle/cap only
-                    self.get_logger().debug(f'  [logi filter] rejected: area={area} < 3000')
-                    continue
-                if ratio < 0.9:                # too wide → wall cabinet / not extinguisher
-                    self.get_logger().debug(f'  [logi filter] rejected: h/w ratio={ratio:.2f} < 0.9')
-                    continue
-                filtered.append(d)
-
-            # Sort: highest confidence first (already done in _detect_raw),
-            # then by area descending → full body wins over partial box
-            filtered.sort(key=lambda d: (d[6], (d[4]-d[2])*(d[5]-d[3])), reverse=True)
-
-            dets = filtered
-
+            dets, dbg = self._detect_raw(frame, c)
             # Draw IBVS arrow + class label if detection found
             if dets:
                 h, w = frame.shape[:2]
@@ -440,6 +410,7 @@ class IBVSActionServer(Node):
                 cv2.putText(dbg, str(cls_lbl), (cx_d+5, cy_d-8),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1)
         return dets, frame, dbg
+
 
     # ---- Combined debug publisher -------------------------------------------
 

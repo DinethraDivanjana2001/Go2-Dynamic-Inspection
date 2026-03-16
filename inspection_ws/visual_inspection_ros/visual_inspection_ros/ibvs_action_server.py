@@ -270,19 +270,43 @@ class IBVSActionServer(Node):
 
     # ---- YOLO detection -----------------------------------------------------
 
+    # YOLO input resize — TRT engine compiled for 640x360 (same as original ibvs_pipeline.py)
+    YOLO_INPUT_H = 360
+
     def _detect_raw(self, frame, conf):
         """Run YOLO. Returns (detections, annotated_frame). Call with lock held.
         det tuple: (cx, cy, x1, y1, x2, y2, conf, cls_name)
+        
+        FIX: Original ibvs_pipeline.py ran YOLO on cv2.resize(frame_logi, (640,360)).
+        TensorRT engine was compiled for that input size. Running on raw 640x480 caused
+        bad detections. We resize to YOLO_INPUT_H=360, run YOLO, then scale coords back.
         """
         if self.model is None or frame is None:
             return [], frame.copy() if frame is not None else None
 
-        results = self.model(frame, verbose=False, conf=conf)[0]
-        debug   = frame.copy()
+        h_orig, w_orig = frame.shape[:2]
+
+        # Resize to match TRT engine compiled size (640x360)
+        if h_orig != self.YOLO_INPUT_H:
+            yolo_frame = cv2.resize(frame, (w_orig, self.YOLO_INPUT_H))
+            scale_y    = h_orig / self.YOLO_INPUT_H   # 480/360 = 1.333
+            scale_x    = 1.0                           # width unchanged (both 640)
+        else:
+            yolo_frame = frame
+            scale_y    = 1.0
+            scale_x    = 1.0
+
+        results = self.model(yolo_frame, verbose=False, conf=conf)[0]
+        debug   = frame.copy()   # annotate on original resolution frame
         dets    = []
 
         for box in results.boxes:
             x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
+
+            # Scale coords back to original frame size
+            x1 = int(x1 * scale_x);  x2 = int(x2 * scale_x)
+            y1 = int(y1 * scale_y);  y2 = int(y2 * scale_y)
+
             cx = (x1 + x2) / 2.0
             cy = (y1 + y2) / 2.0
             c  = float(box.conf[0])
@@ -303,6 +327,7 @@ class IBVSActionServer(Node):
             cv2.circle(debug, (int(cx), int(cy)), 6, (0, 0, 255), -1)
 
         return dets, debug
+
 
     def _detect_insta(self, conf=None):
         """Detect on Insta360 using YOLO tracking (ByteTrack).

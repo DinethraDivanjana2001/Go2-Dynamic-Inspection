@@ -76,6 +76,7 @@ def find_camera(name_pattern):
             vendor_id, udev_path = vid, udev
             break
 
+    # Layer 1: udev symlink (e.g. /dev/insta360, /dev/logitech)
     if udev_path and os.path.exists(udev_path):
         cap = cv2.VideoCapture(udev_path)
         if cap.isOpened():
@@ -85,6 +86,7 @@ def find_camera(name_pattern):
                 idx = int(os.path.realpath(udev_path).replace('/dev/video', ''))
                 return idx
 
+    # Layer 2: vendor ID via sysfs — open by PATH STRING (integer index fails on Jetson)
     if vendor_id:
         for path in sorted(glob.glob('/sys/class/video4linux/video*')):
             try:
@@ -94,8 +96,9 @@ def find_camera(name_pattern):
                     if os.path.exists(vid_file):
                         with open(vid_file) as f:
                             if f.read().strip() == vendor_id:
-                                idx = int(os.path.basename(path).replace('video', ''))
-                                cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
+                                idx      = int(os.path.basename(path).replace('video', ''))
+                                dev_path = f'/dev/video{idx}'
+                                cap      = cv2.VideoCapture(dev_path)   # path string, not int
                                 if cap.isOpened():
                                     ret, frame = cap.read()
                                     cap.release()
@@ -105,6 +108,27 @@ def find_camera(name_pattern):
                     check = os.path.dirname(check)
             except:
                 pass
+
+    # Layer 3: brute-force try /dev/video0 .. /dev/video9 matching device name
+    for idx in range(10):
+        dev_path = f'/dev/video{idx}'
+        if not os.path.exists(dev_path):
+            continue
+        try:
+            name_file = f'/sys/class/video4linux/video{idx}/name'
+            if os.path.exists(name_file):
+                with open(name_file) as f:
+                    dev_name = f.read().strip()
+                if name_pattern.split()[0].lower() in dev_name.lower():
+                    cap = cv2.VideoCapture(dev_path)
+                    if cap.isOpened():
+                        ret, frame = cap.read()
+                        cap.release()
+                        if ret and frame is not None and frame.size > 0:
+                            return idx
+        except:
+            pass
+
     return -1
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -237,23 +261,23 @@ def main():
     cap_insta, cap_logi = None, None
 
     if insta_idx >= 0:
-        cap_insta = cv2.VideoCapture(insta_idx, cv2.CAP_V4L2)
+        cap_insta = cv2.VideoCapture(f'/dev/video{insta_idx}')
         cap_insta.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap_insta.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
         cap_insta.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        print(f'  Insta360  → /dev/video{insta_idx}')
+        print(f'  Insta360  -> /dev/video{insta_idx}')
     else:
-        print('  Insta360  → NOT FOUND (will capture black frame)')
+        print('  Insta360  -> NOT FOUND (will capture black frame)')
 
     if logi_idx >= 0:
-        cap_logi = cv2.VideoCapture(logi_idx, cv2.CAP_V4L2)
+        cap_logi = cv2.VideoCapture(f'/dev/video{logi_idx}')
         cap_logi.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
         cap_logi.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap_logi.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         cap_logi.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        print(f'  Logitech  → /dev/video{logi_idx}')
+        print(f'  Logitech  -> /dev/video{logi_idx}')
     else:
-        print('  Logitech  → NOT FOUND (will capture black frame)')
+        print('  Logitech  -> NOT FOUND (will capture black frame)')
 
     # ── Arduino ───────────────────────────────────────────────────────────────
     ard = Arduino()

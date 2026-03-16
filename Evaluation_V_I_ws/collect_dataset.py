@@ -62,43 +62,76 @@ def count_in(subfolder):
 
 # ── Pipeline ─────────────────────────────────────────────────────────────────
 def run_and_parse():
-    """Run inspection, auto-parse IBVS stats, return (img_path, time, error, converged)."""
+    """Run inspection, auto-parse IBVS stats, return (img_path, time, error, converged).
+    
+    FIX: proc.wait(timeout=5) was killing the process while it was still saving
+    images (IBVS + 4 captures with autofocus = 50+ seconds total).
+    Now we break on RESULT, sleep briefly, kill cleanly, then POLL for the image.
+    """
     before = set()
     if CAPTURES.exists():
         before = {f for f in CAPTURES.rglob('img_*.jpg')}
 
     ibvs_time, final_err, converged = 0.0, 0.0, False
+    proc = None
     info('Running inspection pipeline...')
 
     try:
         proc = subprocess.Popen(ROS_CMD, shell=True,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True)
         for line in proc.stdout:
             l = line.strip()
             if l: print(f'     {l}')
+
+            # Parse IBVS converge: "IBVS converged: err=7.8px at iter 38"
             m = re.search(r'IBVS converged.*err=([\d.]+)px.*iter\s+(\d+)', l)
             if m:
                 final_err = float(m.group(1))
                 ibvs_time = round(int(m.group(2)) * 0.066, 1)
                 converged = True
-            if re.search(r'IBVS timeout', l):
-                converged = False; ibvs_time = 40.0
-            if 'success=True' in l or 'success=False' in l or 'RESULT' in l:
-                break
-        proc.wait(timeout=5)
-    except Exception as e:
-        bad(f'Pipeline error: {e}')
 
-    time.sleep(1.5)
-    after = set()
-    if CAPTURES.exists():
-        after = {f for f in CAPTURES.rglob('img_*.jpg')}
-    new = after - before
+            # Parse timeout
+            if re.search(r'IBVS timeout', l):
+                converged = False
+                ibvs_time = 40.0
+
+            # Pipeline finished — break and wait for image to be written
+            if 'success=True' in l or 'success=False' in l or 'RESULT' in l:
+                info('Pipeline finished — waiting for image to be written to disk...')
+                time.sleep(4)   # Give capture code time to finish writing files
+                break
+
+    except Exception as e:
+        bad(f'Pipeline launch error: {e}')
+    finally:
+        # Always clean kill — never leave zombie subprocess
+        if proc is not None:
+            try:
+                proc.kill()
+                proc.wait(timeout=3)
+            except Exception:
+                pass
+
+    # Poll captures/ for up to 60 seconds for a new image to appear
+    print(f'  {Y}Waiting for captured image', end='', flush=True)
+    deadline = time.time() + 60
     img_path = None
-    if new:
-        newest = max(new, key=lambda f: f.stat().st_mtime)
-        img01  = newest.parent / 'img_01.jpg'
-        img_path = img01 if img01.exists() else newest
+    while time.time() < deadline:
+        if CAPTURES.exists():
+            after = {f for f in CAPTURES.rglob('img_*.jpg')}
+            new = after - before
+            if new:
+                newest   = max(new, key=lambda f: f.stat().st_mtime)
+                img01    = newest.parent / 'img_01.jpg'
+                img_path = img01 if img01.exists() else newest
+                print(f'  ✓{X}')
+                break
+        time.sleep(1)
+        print('.', end='', flush=True)
+    else:
+        print(f'  timeout!{X}')
+
     return img_path, ibvs_time, final_err, converged
 
 def save_img(img_path, dest: Path, fname: str) -> bool:

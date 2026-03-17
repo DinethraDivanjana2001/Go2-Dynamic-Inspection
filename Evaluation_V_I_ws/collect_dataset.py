@@ -503,11 +503,14 @@ def show_summary():
 
 def main():
     init_log()
-    # Full session list — only reference + distance exposed for now
-    # Reason: YOLO detection not reliable enough across angles/occlusion until retraining
-    active_sessions = {
-        '1': ('Reference images (baseline)',  session_reference),
-        '2': ('Distance evaluation',          session_distance),
+    sessions = {
+        '1': ('Reference images',            session_reference),
+        '2': ('Angle evaluation (any angle)', session_angle),
+        '3': ('Distance evaluation',          session_distance),
+        '4': ('Gauge ground truth',           session_gauge),
+        '5': ('VLM PASS/FAIL images',         session_vlm),
+        '6': ('Occlusion evaluation',         session_occlusion),
+        '7': ('Multi-object scenes',          session_multi),
         's': ('Show collection status',       show_summary),
     }
 
@@ -520,12 +523,9 @@ def main():
     T2: ros2 run visual_inspection_ros servo_node
     T3: ros2 run visual_inspection_ros ibvs_action_server
 
-  {Y}NOTE: Collecting Reference + Distance only for now.{X}
-  {Y}Angle/occlusion/VLM re-enabled after YOLO retraining.{X}
-
   {Y}Total images logged: {count_rows()}{X}
 ''')
-        for k,(label,_) in active_sessions.items():
+        for k,(label,_) in sessions.items():
             print(f'    {C}{k}{X}: {label}')
         print(f'    {C}q{X}: Quit')
         print()
@@ -533,11 +533,11 @@ def main():
         choice = input(f'  {W}▶  Select session: {X}').strip().lower()
         if choice == 'q':
             break
-        elif choice in active_sessions:
-            active_sessions[choice][1]()
+        elif choice in sessions:
+            sessions[choice][1]()
             input(f'\n{G}  Done! Press ENTER to return to menu...{X}')
         else:
-            bad('Invalid choice — only 1, 2, s, q available'); time.sleep(1)
+            bad('Invalid choice'); time.sleep(1)
 
     clr()
     hdr('SESSION ENDED')

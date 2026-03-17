@@ -26,21 +26,18 @@ ssh rgen@192.168.8.181
 **Use:** Connect to Jetson via VNC first, then open a terminal on the Jetson desktop.
 
 ```bash
-# Step 1 — Activate venv
+# Activate venv
 source ~/Documents/Visual_Inspection_ws/venv/bin/activate
 
-# Step 2 — Go to workspace
-cd ~/Documents/Visual_Inspection_ws/jetson_workspace
-
-# Step 3 — Run (uses run.sh helper that also frees cameras + sets max performance)
-./run.sh
-```
-
-**OR run directly:**
-```bash
-source ~/Documents/Visual_Inspection_ws/venv/bin/activate
+# Run headed pipeline
 cd ~/Documents/Visual_Inspection_ws/jetson_workspace
 python3 ibvs_headed.py
+```
+
+**Optional shortcut (also frees cameras + sets max Jetson performance):**
+```bash
+cd ~/Documents/Visual_Inspection_ws/jetson_workspace
+./run.sh
 ```
 
 **What to watch:**
@@ -57,19 +54,18 @@ python3 ibvs_headed.py
 **Use:** When demonstrating over SSH without a screen.
 
 ```bash
-# Step 1 — Activate venv
+# Activate venv
 source ~/Documents/Visual_Inspection_ws/venv/bin/activate
 
-# Step 2 — Run headless
-cd ~/Documents/Visual_Inspection_ws/jetson_workspace
-./run.sh headless
-```
-
-**OR:**
-```bash
-source ~/Documents/Visual_Inspection_ws/venv/bin/activate
+# Run headless pipeline
 cd ~/Documents/Visual_Inspection_ws/jetson_workspace
 python3 ibvs_headless.py
+```
+
+**Optional shortcut:**
+```bash
+cd ~/Documents/Visual_Inspection_ws/jetson_workspace
+./run.sh headless
 ```
 
 **What to watch in terminal:**

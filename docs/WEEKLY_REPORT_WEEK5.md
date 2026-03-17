@@ -53,7 +53,15 @@ The system has three separate pipelines — each needs different metrics:
 *(Insert: screenshot of evaluation_plan.md showing the full metric breakdown)*
 
 **Script for Slide 2:**
-"Before collecting any data I did research into what evaluation methods are standard for this kind of pipeline. The system has three distinct parts — capture, gauge reading, and VLM decision — and each needs completely different metrics. I documented the full evaluation plan including which statistical tests are needed, minimum sample sizes, and how to handle outliers. For the paper we need at least 50 samples per test condition to get statistically meaningful results."
+"Before collecting any data I researched what evaluation methods are appropriate for each part of this system — because the three pipelines need completely different metrics.
+
+For the **ROI capture pipeline** — the part on Jetson — we measure IBVS centering performance: convergence time in seconds, final pixel error at convergence (target under 10 pixels), and convergence rate as a percentage of successful runs. On top of that, image quality metrics: SSIM and PSNR tell us spatial fidelity, VIF tells us perceived visual quality from a human perspective, and AlexNet cosine similarity compares the captured image to a reference to see if the captured content matches what was expected.
+
+For the **gauge reading pipeline** on the server — we compute MAE and RMSE between the predicted reading and the true physical value, plus R-squared to show how well the model tracks across the full range of gauge values.
+
+For the **VLM decision pipeline** — we use classification metrics: precision, recall, F1 for the PASS/FAIL decisions, BERTScore to evaluate how semantically close the VLM's text output is to a ground-truth caption, and LLM-as-judge where a second language model scores the output for correctness.
+
+The test conditions are: 7 distances from 0.75m to 4m, 7 horizontal angles, 4 occlusion levels, and multi-object scenes. We are starting with reference baseline and distance evaluation first — because those do not require YOLO to work at angles, and YOLO currently has a detection quality issue at close range which we are fixing through retraining. Once retraining is done, all test conditions will be unlocked."
 
 ---
 

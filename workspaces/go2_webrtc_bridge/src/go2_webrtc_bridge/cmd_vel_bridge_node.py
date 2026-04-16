@@ -208,6 +208,10 @@ class CmdVelBridgeNode(Node):
             VUI_COLOR.BLUE, VUI_COLOR.GREEN, VUI_COLOR.CYAN, VUI_COLOR.PURPLE
         ]
 
+        self._action_requested = False
+        self._target_action = ""
+        self._action_lock = threading.Lock()
+
         # ---- Publishers / Subscribers / Services -------------------------
         self._connected_pub = self.create_publisher(Bool, 'go2_bridge/connected', 10)
         self._cmd_vel_sub = self.create_subscription(
@@ -218,6 +222,9 @@ class CmdVelBridgeNode(Node):
         )
         self._color_srv = self.create_service(
             AddTwoInts, 'set_color', self._set_color_callback
+        )
+        self._action_srv = self.create_service(
+            AddTwoInts, 'set_action', self._set_action_callback
         )
 
         # ---- Asyncio event loop in background thread ---------------------
@@ -254,6 +261,17 @@ class CmdVelBridgeNode(Node):
             
         self.get_logger().info(f"Target color index set to {idx}.")
         response.sum = idx
+        return response
+
+    def _set_action_callback(self, request, response):
+        """Sets the robot action. 1 for StandUp, 0 for StandDown"""
+        action = "StandUp" if request.a == 1 else "StandDown"
+        with self._action_lock:
+            self._target_action = action
+            self._action_requested = True
+            
+        self.get_logger().info(f"Target action set to {action}.")
+        response.sum = request.a
         return response
 
     def _cmd_vel_callback(self, msg: Twist):
@@ -338,6 +356,21 @@ class CmdVelBridgeNode(Node):
                 with self._color_lock:
                     color_change_requested = self._color_change_requested
                     target_color_index = self._target_color_index
+
+                with self._action_lock:
+                    action_requested = self._action_requested
+                    target_action = self._target_action
+
+                # Handle action commands
+                if action_requested:
+                    await self._conn_mgr.send_command(
+                        RTC_TOPIC["SPORT_MOD"],
+                        {"api_id": SPORT_CMD[target_action]}
+                    )
+                    self.get_logger().info(f"🤖 Performed Action: {target_action}")
+                    with self._action_lock:
+                        self._action_requested = False
+                    await asyncio.sleep(1.0)
 
                 # Handle color switching
                 if color_change_requested:

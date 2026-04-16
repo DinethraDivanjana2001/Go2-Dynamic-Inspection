@@ -32,7 +32,7 @@ from std_msgs.msg import Bool
 # ---------------------------------------------------------------------------
 try:
     from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
-    from go2_webrtc_driver.constants import RTC_TOPIC, SPORT_CMD
+    from go2_webrtc_driver.constants import RTC_TOPIC, SPORT_CMD, VUI_COLOR
     GO2_DRIVER_AVAILABLE = True
 except ImportError as _e:
     GO2_DRIVER_AVAILABLE = False
@@ -200,6 +200,14 @@ class CmdVelBridgeNode(Node):
         self._target_gait = -1
         self._gait_lock = threading.Lock()
 
+        self._color_change_requested = False
+        self._target_color_index = -1
+        self._color_lock = threading.Lock()
+        self._vui_colors = [
+            VUI_COLOR.WHITE, VUI_COLOR.RED, VUI_COLOR.YELLOW, 
+            VUI_COLOR.BLUE, VUI_COLOR.GREEN, VUI_COLOR.CYAN, VUI_COLOR.PURPLE
+        ]
+
         # ---- Publishers / Subscribers / Services -------------------------
         self._connected_pub = self.create_publisher(Bool, 'go2_bridge/connected', 10)
         self._cmd_vel_sub = self.create_subscription(
@@ -207,6 +215,9 @@ class CmdVelBridgeNode(Node):
         )
         self._gait_srv = self.create_service(
             AddTwoInts, 'set_gait', self._set_gait_callback
+        )
+        self._color_srv = self.create_service(
+            AddTwoInts, 'set_color', self._set_color_callback
         )
 
         # ---- Asyncio event loop in background thread ---------------------
@@ -231,6 +242,18 @@ class CmdVelBridgeNode(Node):
             
         self.get_logger().info(f"Target gait set to {request.a}. Waiting for robot to transition.")
         response.sum = request.a  # Echo target gait to acknowledge
+        return response
+
+    def _set_color_callback(self, request, response):
+        """Sets the VUI LED color using a color index (0-6)."""
+        # Ensure the index is within range
+        idx = request.a if 0 <= request.a < len(self._vui_colors) else 0
+        with self._color_lock:
+            self._target_color_index = idx
+            self._color_change_requested = True
+            
+        self.get_logger().info(f"Target color index set to {idx}.")
+        response.sum = idx
         return response
 
     def _cmd_vel_callback(self, msg: Twist):
@@ -311,6 +334,24 @@ class CmdVelBridgeNode(Node):
                 with self._gait_lock:
                     current_gait = self._current_gait
                     target_gait = self._target_gait
+
+                with self._color_lock:
+                    color_change_requested = self._color_change_requested
+                    target_color_index = self._target_color_index
+
+                # Handle color switching
+                if color_change_requested:
+                    await self._conn_mgr.send_command(
+                        RTC_TOPIC["VUI"],
+                        {
+                            "api_id": 1007,
+                            "parameter": {"color": self._vui_colors[target_color_index]}
+                        }
+                    )
+                    self.get_logger().info(f"🎨 VUI LED color changed to index: {target_color_index}")
+                    with self._color_lock:
+                        self._color_change_requested = False
+                    await asyncio.sleep(0.2)
 
                 # Check if we need to switch the gait
                 if target_gait != -1 and current_gait != target_gait:

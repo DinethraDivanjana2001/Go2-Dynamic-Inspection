@@ -22,6 +22,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
+from example_interfaces.srv import AddTwoInts
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Bool
 
@@ -195,10 +196,17 @@ class CmdVelBridgeNode(Node):
         self._cmd_lock = threading.Lock()
         self._running = True
 
-        # ---- Publishers / Subscribers ------------------------------------
+        self._current_gait = -1
+        self._target_gait = -1
+        self._gait_lock = threading.Lock()
+
+        # ---- Publishers / Subscribers / Services -------------------------
         self._connected_pub = self.create_publisher(Bool, 'go2_bridge/connected', 10)
         self._cmd_vel_sub = self.create_subscription(
             Twist, 'cmd_vel', self._cmd_vel_callback, 10
+        )
+        self._gait_srv = self.create_service(
+            AddTwoInts, 'set_gait', self._set_gait_callback
         )
 
         # ---- Asyncio event loop in background thread ---------------------
@@ -216,6 +224,15 @@ class CmdVelBridgeNode(Node):
     # ------------------------------------------------------------------
     # ROS callbacks
     # ------------------------------------------------------------------
+    def _set_gait_callback(self, request, response):
+        """Sets the new target gait."""
+        with self._gait_lock:
+            self._target_gait = request.a
+            
+        self.get_logger().info(f"Target gait set to {request.a}. Waiting for robot to transition.")
+        response.sum = request.a  # Echo target gait to acknowledge
+        return response
+
     def _cmd_vel_callback(self, msg: Twist):
         """Store latest velocity command (thread-safe)."""
         with self._cmd_lock:
@@ -267,8 +284,22 @@ class CmdVelBridgeNode(Node):
 
         # Initial connection (retries indefinitely)
         await self._conn_mgr.ensure_connected()
-
         self.get_logger().info("Command loop running at 50 Hz")
+
+        # Local callback to track the live gait state from the robot over WebRTC
+        def sportmodestatus_callback(message):
+            try:
+                gait = message['data']['gait_type']
+                with self._gait_lock:
+                    self._current_gait = gait
+            except (KeyError, TypeError):
+                pass
+        
+        # Subscribe to sportmodestat callback
+        if self._conn_mgr.conn and self._conn_mgr.conn.datachannel:
+            self._conn_mgr.conn.datachannel.pub_sub.subscribe(
+                RTC_TOPIC['LF_SPORT_MOD_STATE'], sportmodestatus_callback
+            )
 
         while self._running:
             try:
@@ -276,6 +307,24 @@ class CmdVelBridgeNode(Node):
                     x = self._x_speed
                     y = self._y_speed
                     z = self._z_speed
+                
+                with self._gait_lock:
+                    current_gait = self._current_gait
+                    target_gait = self._target_gait
+
+                # Check if we need to switch the gait
+                if target_gait != -1 and current_gait != target_gait:
+                    # Keep continuously sending SwitchGait until it matches
+                    await self._conn_mgr.send_command(
+                        RTC_TOPIC["SPORT_MOD"],
+                        {
+                            "api_id": SPORT_CMD["SwitchGait"],
+                            "parameter": {"data": target_gait}
+                        }
+                    )
+                    # Use a slightly longer delay after gait change commands to allow the robot physical time to shift states
+                    await asyncio.sleep(0.5)
+                    continue
 
                 # Threshold: treat very small values as zero to send StopMove
                 dead = 0.01
@@ -299,6 +348,12 @@ class CmdVelBridgeNode(Node):
                 self.get_logger().error(f"Command loop error: {exc}")
                 self._conn_mgr.is_connected = False
                 await asyncio.sleep(1.0)
+                
+                # Resubscribe on reconnect
+                if await self._conn_mgr.ensure_connected() and self._conn_mgr.conn and self._conn_mgr.conn.datachannel:
+                    self._conn_mgr.conn.datachannel.pub_sub.subscribe(
+                        RTC_TOPIC['LF_SPORT_MOD_STATE'], sportmodestatus_callback
+                    )
 
         await self._conn_mgr.disconnect()
 

@@ -135,6 +135,7 @@ void pathHandler(const nav_msgs::msg::Path::ConstSharedPtr pathIn)
     path.poses[i].pose.position.x = pathIn->poses[i].pose.position.x;
     path.poses[i].pose.position.y = pathIn->poses[i].pose.position.y;
     path.poses[i].pose.position.z = pathIn->poses[i].pose.position.z;
+    path.poses[i].pose.orientation = pathIn->poses[i].pose.orientation;
   }
 
   vehicleXRec = vehicleX;
@@ -309,6 +310,21 @@ int main(int argc, char** argv)
       dis = sqrt(disX * disX + disY * disY);
       float pathDir = atan2(disY, disX);
 
+      if (pathPointID == pathSize - 1 && dis < stopDisThre) {
+        geometry_msgs::msg::Quaternion geoQuat = path.poses[pathSize - 1].pose.orientation;
+        if (geoQuat.w != 0 || geoQuat.x != 0 || geoQuat.y != 0 || geoQuat.z != 0) {
+          double roll, pitch, yaw;
+          tf2::Matrix3x3(tf2::Quaternion(geoQuat.x, geoQuat.y, geoQuat.z, geoQuat.w)).getRPY(roll, pitch, yaw);
+          pathDir = yaw;
+        } else if (pathSize > 1) {
+          float dx = path.poses[pathSize - 1].pose.position.x - path.poses[pathSize - 2].pose.position.x;
+          float dy = path.poses[pathSize - 1].pose.position.y - path.poses[pathSize - 2].pose.position.y;
+          if (sqrt(dx*dx + dy*dy) > 0.01) {
+            pathDir = atan2(dy, dx);
+          }
+        }
+      }
+
       float dirDiff = vehicleYaw - vehicleYawRec - pathDir;
       if (dirDiff > PI) dirDiff -= 2 * PI;
       else if (dirDiff < -PI) dirDiff += 2 * PI;
@@ -347,7 +363,7 @@ int main(int argc, char** argv)
 
       if (joySpeed2 == 0 && !autonomyMode) {
         vehicleYawRate = maxYawRate * joyYaw * PI / 180.0;
-      } else if (pathSize <= 1 || (dis < stopDisThre && noRotAtGoal)) {
+      } else if (pathSize <= 1 || (dis < stopDisThre && noRotAtGoal) || (dis < stopDisThre && fabs(dirDiff) < dirDiffThre)) {
         vehicleYawRate = 0;
       }
 

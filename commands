@@ -240,6 +240,27 @@ pose:
 "
 
 
+ros2 topic pub --once /initialpose geometry_msgs/msg/PoseWithCovarianceStamped "
+header:
+  frame_id: 'map'
+pose:
+  pose:
+    position:
+      x: 0.3906
+      y: -19.5439
+      z: 0.0
+    orientation:
+      z: 0.4168
+      w: 0.9089
+  covariance: [0.25, 0, 0, 0, 0, 0,
+               0, 0.25, 0, 0, 0, 0,
+               0, 0, 0.25, 0, 0, 0,
+               0, 0, 0, 0.1, 0, 0,
+               0, 0, 0, 0, 0.1, 0,
+               0, 0, 0, 0, 0, 0.1]
+"
+
+
 
 
 source install/setup.bash
@@ -252,3 +273,14 @@ ros2 service call /set_color example_interfaces/srv/AddTwoInts "{a: 5, b: 0}"
 ros2 service call /set_action example_interfaces/srv/AddTwoInts "{a: 1, b: 0}"
 
 ros2 service call /set_action example_interfaces/srv/AddTwoInts "{a: 0, b: 0}"
+
+
+ cd workspaces/mola_lo/
+ source install/setup.bash 
+ros2 service call /mola_runtime_param_set mola_msgs/srv/MolaRuntimeParamSet \
+   "{parameters: \"mola::LidarOdometry:lidar_odom:\n  active: true\n\"}"
+
+
+cd workspaces/dlio/ 
+source install/setup.bash
+ros2 launch direct_lidar_inertial_odometry dlio_mapping.launch.py

@@ -60,7 +60,7 @@
     <param name="twoWayDrive" value="$(var twoWayDrive)" />
     <param name="lookAheadDis" value="1.5" />
     <param name="yawRateGain" value="4.5" />
-    <param name="stopYawRateGain" value="2.5" />
+    <param name="stopYawRateGain" value="25.0" />
     <param name="maxYawRate" value="30.0" />
     <param name="maxSpeed" value="$(var maxSpeed)" />
     <param name="maxAccel" value="1.5" />
@@ -78,7 +78,7 @@
     <param name="inclThre" value="45.0" />
     <param name="stopTime" value="5.0" />
     <param name="noRotAtStop" value="false" />
-    <param name="noRotAtGoal" value="true" />
+    <param name="noRotAtGoal" value="false" />
     <param name="autonomyMode" value="$(var autonomyMode)" />
     <param name="autonomySpeed" value="$(var autonomySpeed)" />
     <param name="joyToSpeedDelay" value="$(var joyToSpeedDelay)" />

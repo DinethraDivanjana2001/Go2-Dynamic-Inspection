@@ -35,7 +35,7 @@ run_localization() {
         imu_topic_name:="/livox/imu" \
         mola_tf_base_link:="base_link" \
         mola_deskew_method:="MotionCompensationMethod::IMU" \
-        mola_initial_map_mm_file:="/home/yasiru/Documents/Far_planner_test/maps/Ground/myMap.mm"
+        mola_initial_map_mm_file:="/home/yasiru/Documents/Far_planner_test/maps/vision_lab/myMap.mm"
 }
 
 run_tf() {
@@ -144,7 +144,6 @@ case "$cmd" in
         run_terrain &
         run_terrain_ext &
         run_far &
-        run_local &
         run_rviz &
         wait
         ;;

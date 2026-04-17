@@ -284,3 +284,12 @@ ros2 service call /mola_runtime_param_set mola_msgs/srv/MolaRuntimeParamSet \
 cd workspaces/dlio/ 
 source install/setup.bash
 ros2 launch direct_lidar_inertial_odometry dlio_mapping.launch.py
+
+
+ros2 launch direct_lidar_inertial_odometry dlio_mapping.launch.py start_dlio:=false
+
+# Turn DLIO ON:
+ros2 service call /dlio/enable std_srvs/srv/SetBool "{data: true}"
+
+# Turn DLIO OFF:
+ros2 service call /dlio/enable std_srvs/srv/SetBool "{data: false}"

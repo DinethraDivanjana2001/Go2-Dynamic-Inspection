@@ -8,6 +8,9 @@ string location_label   # label for this location (from BT: "gauge_room_A" / "un
 bool   overview_only    # true = just capture Insta360 overview, skip IBVS entirely
                         # BT uses this when it wants a 360 snapshot for VLM
 int32  overview_count   # how many Insta360 images to capture (used when overview_only=true, default 2)
+string target_object    # object class to inspect — filters YOLO to this class only
+                        # BT sends: "fire_extinguisher" | "door" | "person" | "gauge"
+                        # "" or "any" = detect all classes (default behaviour)
 
 ---
 

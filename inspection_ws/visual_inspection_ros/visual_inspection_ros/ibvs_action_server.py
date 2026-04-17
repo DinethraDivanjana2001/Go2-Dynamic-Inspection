@@ -97,8 +97,25 @@ def load_yolo(engine_path):
 class IBVSActionServer(Node):
 
     # Paths
-    ENGINE_PATH     = os.path.expanduser('~/Documents/Visual_Inspection_ws/weights/yolo11n.engine')
+    ENGINE_PATH     = os.path.expanduser('~/Documents/Visual_Inspection_ws/weights/yolov26s.engine')
     MQTT_CFG_PATH   = os.path.expanduser('~/Documents/Visual_Inspection_ws/config/mqtt_config.yaml')
+
+    # Known object classes the BT can request (BT name → YOLO class name)
+    # BT sends human-readable names; we normalize them to match YOLO class names
+    KNOWN_CLASSES = {
+        'fire_extinguisher' : 'fire_extinguisher',
+        'fire extinguisher' : 'fire_extinguisher',
+        'extinguisher'      : 'fire_extinguisher',
+        'door'              : 'door',
+        'person'            : 'person',
+        'people'            : 'person',
+        'gauge'             : 'gauge',
+        'pressure_gauge'    : 'gauge',
+        'main_cylinder'     : 'main_cylinder',   # not trained, kept for future
+        'unknown'           : '',                 # '' = detect all
+        'any'               : '',
+        ''                  : '',
+    }
 
     # YOLO confidence
     CONF_INSTA  = 0.5   # coarse detection
@@ -180,6 +197,7 @@ class IBVSActionServer(Node):
         # State visible to debug timer
         self._yolo_lock    = threading.Lock()
         self._mode         = 'IDLE'
+        self._target_class = ''          # '' = any class; set per goal from BT
         self._ibvs_ex      = 0.0
         self._ibvs_ey      = 0.0
         self._ibvs_iter    = 0
@@ -318,6 +336,11 @@ class IBVSActionServer(Node):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
         dets.sort(key=lambda d: d[6], reverse=True)
+
+        # Filter to target class if specified
+        if self._target_class:
+            dets = [d for d in dets if d[7].lower() == self._target_class.lower()]
+
         h, w = frame.shape[:2]
         cv2.line(debug, (w//2, 0), (w//2, h), (80, 80, 200), 1)
         cv2.line(debug, (0, h//2), (w, h//2), (80, 80, 200), 1)
@@ -389,6 +412,12 @@ class IBVSActionServer(Node):
             # Sort front by track ID for consistent ordering
             front.sort(key=lambda d: d[7] if d[7] >= 0 else d[6])
             back.sort( key=lambda d: d[7] if d[7] >= 0 else d[6])
+
+            # Filter to target class if specified
+            if self._target_class:
+                tc = self._target_class.lower()
+                front = [d for d in front if d[8].lower() == tc]
+                back  = [d for d in back  if d[8].lower() == tc]
 
         return front, back, frame, debug
 
@@ -589,7 +618,7 @@ class IBVSActionServer(Node):
 
             # PID tilt
             integral_tilt = np.clip(integral_tilt + theta_y * dt, -50, 50)
-            dt_ = -(self.KP*theta_y + self.KI*integral_tilt + self.KD*(theta_y-prev_et)/dt)
+            dt_ = (self.KP*theta_y + self.KI*integral_tilt + self.KD*(theta_y-prev_et)/dt)   # +ve: tilt up when object above centre
             prev_et = theta_y
 
             # Velocity limit
@@ -779,11 +808,21 @@ class IBVSActionServer(Node):
 
         feedback = InspectObjects.Feedback()
         result   = InspectObjects.Result()
-        max_obj       = goal_handle.request.max_objects
-        ret_home      = goal_handle.request.return_home
-        overview_only = goal_handle.request.overview_only
+        max_obj        = goal_handle.request.max_objects
+        ret_home       = goal_handle.request.return_home
+        overview_only  = goal_handle.request.overview_only
         location_label = goal_handle.request.location_label or 'unknown'
         overview_count = goal_handle.request.overview_count or 2
+        target_obj_raw = getattr(goal_handle.request, 'target_object', '') or ''
+
+        # Normalise target_object → YOLO class name
+        self._target_class = self.KNOWN_CLASSES.get(
+            target_obj_raw.lower().strip(), target_obj_raw.lower().strip())
+        if self._target_class:
+            self.get_logger().info(
+                f'  Target object filter: "{target_obj_raw}" → YOLO class "{self._target_class}"')
+        else:
+            self.get_logger().info('  No target object filter — detecting all classes')
 
         def abort(reason, in_back=False, found=0):
             self._pub_status('IDLE')

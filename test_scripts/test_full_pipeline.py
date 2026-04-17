@@ -14,13 +14,11 @@ Usage:
   source /opt/ros/humble/setup.bash
   source ~/Documents/Visual_Inspection_ws/inspection_ws/install/setup.bash
   python3 test_scripts/test_full_pipeline.py
+  python3 test_scripts/test_full_pipeline.py --object gauge
+  python3 test_scripts/test_full_pipeline.py --object fire_extinguisher --once
 
-  Options (edit constants below):
-    MAX_OBJECTS   - 0 = inspect all, N = first N only
-    RETURN_HOME   - servo returns to 90,90 after each run
-    AUTO_RETRY    - if object_in_back=True, wait RETRY_WAIT then resend goal
-    RETRY_WAIT    - seconds to wait before retry (simulates robot rotate)
-    RUN_ONCE      - True = one run then exit, False = loop forever
+  Supported objects: fire_extinguisher, door, person, gauge
+  Leave blank (default) to detect ALL classes.
 """
 
 import rclpy
@@ -31,8 +29,9 @@ from visual_inspection_interfaces.action import InspectObjects
 
 import sys
 import time
+import argparse
 
-# ---- Config (edit here) -----------------------------------------------
+# ---- Config (edit here or use CLI args) ------------------------------
 MAX_OBJECTS  = 0      # 0 = inspect all detected front objects
 RETURN_HOME  = True   # servo returns to 90,90 after done
 AUTO_RETRY   = True   # auto-retry if object_in_back detected
@@ -40,11 +39,15 @@ RETRY_WAIT   = 3.0    # seconds before retry (simulates robot 180° rotation)
 RUN_ONCE     = False  # True = one run; False = loop until Ctrl+C
 # -----------------------------------------------------------------------
 
+# Supported target objects (must match YOLO class names in ibvs_action_server)
+SUPPORTED_OBJECTS = ['fire_extinguisher', 'door', 'person', 'gauge', 'any', '']
+
 
 class PipelineTester(Node):
 
-    def __init__(self):
+    def __init__(self, target_object=''):
         super().__init__('pipeline_tester')
+        self.target_object = target_object
         self._client = ActionClient(
             self, InspectObjects, '/visual_inspection/inspect_objects')
         self.get_logger().info('Waiting for action server...')
@@ -53,13 +56,15 @@ class PipelineTester(Node):
 
     def run_one(self, run_id=1):
         """Send one inspection goal and wait for result."""
+        obj_label = self.target_object or 'any'
         print(f'\n{"="*60}')
-        print(f'  RUN {run_id}  (max_objects={MAX_OBJECTS}  return_home={RETURN_HOME})')
+        print(f'  RUN {run_id}  object={obj_label}  max_objects={MAX_OBJECTS}  return_home={RETURN_HOME}')
         print(f'{"="*60}')
 
         goal = InspectObjects.Goal()
-        goal.max_objects = MAX_OBJECTS
-        goal.return_home = RETURN_HOME
+        goal.max_objects   = MAX_OBJECTS
+        goal.return_home   = RETURN_HOME
+        goal.target_object = self.target_object
 
         future        = self._client.send_goal_async(
             goal, feedback_callback=self._feedback_cb)
@@ -161,7 +166,25 @@ class PipelineTester(Node):
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Visual Inspection Pipeline Test')
+    parser.add_argument(
+        '--object', '-o', default='',
+        help='Target object class to inspect. '
+             'Options: fire_extinguisher, door, person, gauge, any (default: any/all)')
+    parser.add_argument(
+        '--once', action='store_true',
+        help='Run once then exit (overrides RUN_ONCE constant)')
+    args = parser.parse_args()
+
+    target_object = args.object.strip().lower()
+    if args.once:
+        global RUN_ONCE
+        RUN_ONCE = True
+
     print('Visual Inspection Pipeline Test')
+    print(f'  Target object : {target_object or "any (all classes)"}')
+    print(f'  Run once      : {RUN_ONCE}')
+    print()
     print('  Make sure these are running:')
     print('  T1: ros2 run visual_inspection_ros camera_node')
     print('  T2: ros2 run visual_inspection_ros servo_node')
@@ -175,7 +198,7 @@ def main():
     print()
 
     rclpy.init()
-    node = PipelineTester()
+    node = PipelineTester(target_object=target_object)
     try:
         node.run_loop()
     except KeyboardInterrupt:

@@ -325,7 +325,7 @@ class IBVSController:
         d_tilt = self.kd_tilt * (error_tilt - self.prev_error_tilt) / dt
         self.prev_error_tilt = error_tilt
         
-        delta_tilt = -(p_tilt + i_tilt + d_tilt)
+        delta_tilt = (p_tilt + i_tilt + d_tilt)   # +ve: tilt up when object above centre
         
         # Velocity limiting for tilt
         MAX_SPEED_TILT = 3.0  # balanced speed

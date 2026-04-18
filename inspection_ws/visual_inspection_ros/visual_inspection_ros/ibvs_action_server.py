@@ -43,7 +43,6 @@ import yaml
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
-import importlib.util
 
 
 # ---------------------------------------------------------------------------
@@ -79,17 +78,12 @@ def clamp(val, lo=0, hi=180):
 def load_yolo(engine_path):
     try:
         from ultralytics import YOLO
-        trt_available = importlib.util.find_spec('tensorrt') is not None
-        pt = engine_path.replace('.engine', '.pt')
-
-        if os.path.exists(engine_path) and trt_available:
-            model = YOLO(engine_path, task='detect')
+        if os.path.exists(engine_path):
+            model = YOLO(engine_path)
             print(f'[ibvs_action_server] YOLO TensorRT: {engine_path}')
         else:
-            if os.path.exists(engine_path) and not trt_available:
-                print('[ibvs_action_server] TensorRT engine found but Python "tensorrt" module is missing')
-                print(f'[ibvs_action_server] Falling back to PyTorch model: {pt}')
-            model = YOLO(pt, task='detect')
+            pt = engine_path.replace('.engine', '.pt')
+            model = YOLO(pt)
             print(f'[ibvs_action_server] YOLO PT fallback: {pt}')
         return model
     except Exception as e:

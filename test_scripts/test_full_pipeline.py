@@ -16,10 +16,8 @@ Usage:
   python3 test_scripts/test_full_pipeline.py
   python3 test_scripts/test_full_pipeline.py --object gauge
   python3 test_scripts/test_full_pipeline.py --object fire_extinguisher --once
-    python3 test_scripts/test_full_pipeline.py --object unknown --once
-    python3 test_scripts/test_full_pipeline.py --object main_cylinder --once
 
-    Supported objects: fire_extinguisher, door, person, gauge, unknown, main_cylinder
+  Supported objects: fire_extinguisher, door, person, gauge
   Leave blank (default) to detect ALL classes.
 """
 
@@ -42,10 +40,7 @@ RUN_ONCE     = False  # True = one run; False = loop until Ctrl+C
 # -----------------------------------------------------------------------
 
 # Supported target objects (must match YOLO class names in ibvs_action_server)
-SUPPORTED_OBJECTS = [
-    'fire_extinguisher', 'door', 'person', 'gauge',
-    'unknown', 'main_cylinder', 'any', ''
-]
+SUPPORTED_OBJECTS = ['fire_extinguisher', 'door', 'person', 'gauge', 'any', '']
 
 
 class PipelineTester(Node):
@@ -69,9 +64,6 @@ class PipelineTester(Node):
         goal = InspectObjects.Goal()
         goal.max_objects   = MAX_OBJECTS
         goal.return_home   = RETURN_HOME
-        goal.location_label = 'test_location'
-        goal.overview_only = False
-        goal.overview_count = 2
         goal.target_object = self.target_object
 
         future        = self._client.send_goal_async(
@@ -185,14 +177,6 @@ def main():
     args = parser.parse_args()
 
     target_object = args.object.strip().lower()
-    if target_object not in SUPPORTED_OBJECTS:
-        print(f'[ERROR] Unsupported --object value: {target_object}')
-        print(f'        Supported: {", ".join([o for o in SUPPORTED_OBJECTS if o])}, any')
-        return
-
-    if target_object == 'any':
-        target_object = ''
-
     if args.once:
         global RUN_ONCE
         RUN_ONCE = True

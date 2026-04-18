@@ -41,7 +41,6 @@ class InspectObjectsAction(py_trees.behaviour.Behaviour):
         max_objects   (int,  default 0  = all)
         return_home   (bool, default True)
         location_label (str, default "unknown")
-        target_object (str, default "")
 
     Blackboard writes (on completion):
         inspection_success    (bool)
@@ -53,14 +52,12 @@ class InspectObjectsAction(py_trees.behaviour.Behaviour):
     """
 
     def __init__(self, name='InspectObjects', node: Node = None,
-                 max_objects=0, return_home=True, location_label='unknown',
-                 target_object=''):
+                 max_objects=0, return_home=True, location_label='unknown'):
         super().__init__(name)
         self._ros_node      = node
         self._max_objects   = max_objects
         self._return_home   = return_home
         self._location_label = location_label
-        self._target_object = target_object
         self._client        = None
         self._goal_handle   = None
         self._result_future = None
@@ -93,7 +90,6 @@ class InspectObjectsAction(py_trees.behaviour.Behaviour):
         goal.location_label = self._location_label
         goal.overview_only = False
         goal.overview_count = 2
-        goal.target_object = self._target_object
 
         self._send_future = self._client.send_goal_async(
             goal, feedback_callback=self._feedback_cb)

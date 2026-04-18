@@ -92,9 +92,6 @@ bool   return_home       # true = servos return to 90,90 after done
 string location_label    # label from BT e.g. "gauge_room_A" / "unknown"
 bool   overview_only     # true = just capture Insta360 snapshots (no IBVS)
 int32  overview_count    # how many Insta360 images (used when overview_only=true)
-string target_object     # target class from BT: fire_extinguisher | door | gauge | person
-                         # unknown | main_cylinder => Insta360-only capture, skip Logitech/IBVS
-                         # any/"" => detect all classes
 
 # ── RESULT (what you get back) ────────────────────────────────────────────────
 bool   success
@@ -173,7 +170,7 @@ ros2 action info /visual_inspection/inspect_objects
 ```
 BT / test_script
      │
-    ▼  Goal {max_objects, return_home, location_label, overview_only, target_object}
+     ▼  Goal {max_objects, return_home, location_label, overview_only}
 ┌─────────────────────────────────────────────────────────┐
 │  ibvs_action_server                                     │
 │                                                         │
@@ -184,11 +181,6 @@ BT / test_script
 │    → Return result (SUCCESS)                            │
 │                                                         │
 │  else (full inspection):                                │
-│    if target_object in {unknown, main_cylinder}:        │
-│      → Insta360-only capture (skip Logitech + IBVS)     │
-│      → Return result (objects_inspected=0)              │
-│                                                         │
-│    else: target class = fire_extinguisher/door/gauge/person │
 │    Stage 1  DETECTING (up to 20s)                       │
 │      YOLO on Insta360 → ByteTrack assigns stable IDs    │
 │      Split: cy < 200px = FRONT, cy > 200px = BACK       │
@@ -207,7 +199,6 @@ BT / test_script
 │        4x Logitech ROI images (focused close-up)        │
 │        1x Insta360 overview image (with YOLO boxes)     │
 │        → saves to captures/inspection/SESSION/CLASS/    │
-│        → saves metadata.json with confidence + track_id  │
 │        → MQTT publish with class_name to ThingsBoard    │
 │                                                         │
 │    Return result {success, objects_found, object_in_back}│
@@ -230,7 +221,6 @@ BT / test_script
 │       │       ├── img_03.jpg
 │       │       ├── img_04.jpg
 │       │       └── overview_unknown_01.jpg  ← Insta360 with YOLO boxes
-│       │       └── metadata.json   ← class_instance_id, confidence, track_id
 │       └── gauge/
 │           └── instance_1/...
 │
@@ -254,24 +244,11 @@ ls -lR ~/Documents/Visual_Inspection_ws/captures/
 python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_full_pipeline.py
 ```
 
-### Targeted class inspection (BT-like)
-```bash
-python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_full_pipeline.py --object fire_extinguisher --once
-python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_full_pipeline.py --object gauge --once
-python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_full_pipeline.py --object person --once
-```
-
-### Insta360-only modes from BT target
-```bash
-python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_full_pipeline.py --object unknown --once
-python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_full_pipeline.py --object main_cylinder --once
-```
-
 ### Single manual goal (terminal)
 ```bash
 ros2 action send_goal /visual_inspection/inspect_objects \
   visual_inspection_interfaces/action/InspectObjects \
-    "{max_objects: 0, return_home: true, location_label: 'unknown', overview_only: false, overview_count: 2, target_object: 'fire_extinguisher'}"
+  "{max_objects: 0, return_home: true, location_label: 'unknown', overview_only: false, overview_count: 2}"
 ```
 
 ### Overview-only mode (BT requests 360 snapshot for VLM)

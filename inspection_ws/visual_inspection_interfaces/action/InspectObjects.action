@@ -10,8 +10,6 @@ bool   overview_only    # true = just capture Insta360 overview, skip IBVS entir
 int32  overview_count   # how many Insta360 images to capture (used when overview_only=true, default 2)
 string target_object    # object class to inspect — filters YOLO to this class only
                         # BT sends: "fire_extinguisher" | "door" | "person" | "gauge"
-                        # BT can also send: "unknown" | "main_cylinder"
-                        # unknown/main_cylinder => Insta360-only capture flow (skip Logitech/IBVS)
                         # "" or "any" = detect all classes (default behaviour)
 
 ---

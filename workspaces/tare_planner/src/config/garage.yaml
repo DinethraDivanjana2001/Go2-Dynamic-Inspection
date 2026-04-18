@@ -18,15 +18,15 @@ tare_planner_node:
 
     kAutoStart : true
     kRushHome : true
-    kUseTerrainHeight : true
+    kUseTerrainHeight : false
     kCheckTerrainCollision : true
     kExtendWayPoint : true
     kUseLineOfSightLookAheadPoint : true
     kNoExplorationReturnHome : true
     kExtendWayPointDistanceBig : 8.0
-    kExtendWayPointDistanceSmall : 4.5
+    kExtendWayPointDistanceSmall : 3.5
     kKeyposeCloudDwzFilterLeafSize : 0.2
-    kRushHomeDist : 10.0
+    kRushHomeDist : 5.0
     kAtHomeDistThreshold : 0.5
     kTerrainCollisionThreshold : 0.5
     kLookAheadDistance : 8.0
@@ -38,7 +38,7 @@ tare_planner_node:
     # PlanningEnv
     kUseFrontier : true
     kFrontierClusterTolerance : 1.0
-    kFrontierClusterMinSize : 30
+    kFrontierClusterMinSize : 10
     kUseCoverageBoundaryOnFrontier : false 
     kUseCoverageBoundaryOnObjectSurface : false
 
@@ -47,7 +47,7 @@ tare_planner_node:
     rolling_occupancy_grid/resolution_y : 0.3
     rolling_occupancy_grid/resolution_z : 0.3
 
-    kSurfaceCloudDwzLeafSize : 0.5
+    kSurfaceCloudDwzLeafSize : 0.3
     kCollisionCloudDwzLeafSize : 0.2
     kKeyposeCloudStackNum : 5
     kPointCloudRowNum : 50
@@ -70,16 +70,16 @@ tare_planner_node:
     keypose_graph/kAddEdgeCollisionCheckPointNumThr : 1
 
     # ViewPointManager
-    viewpoint_manager/number_x : 40
-    viewpoint_manager/number_y : 40
+    viewpoint_manager/number_x : 50
+    viewpoint_manager/number_y : 50
     viewpoint_manager/number_z : 1
-    viewpoint_manager/resolution_x : 1.2
-    viewpoint_manager/resolution_y : 1.2
+    viewpoint_manager/resolution_x : 0.6
+    viewpoint_manager/resolution_y : 0.6
     viewpoint_manager/resolution_z : 0.0
     kConnectivityHeightDiffThr : 0.25
     kGreedyViewPointSampleRange : 3
     kLocalPathOptimizationItrMax : 10
-    kViewPointCollisionMargin : 0.7
+    kViewPointCollisionMargin : 0.5
     kViewPointCollisionMarginZPlus : 0.5
     kViewPointCollisionMarginZMinus : 0.5
     kCollisionGridZScale : 1.0
@@ -87,16 +87,16 @@ tare_planner_node:
     kCollisionGridResolutionY : 0.2
     kCollisionGridResolutionZ : 0.0
     kCollisionPointThr : 1
-    kLineOfSightStopAtNearestObstacle : true
+    kLineOfSightStopAtNearestObstacle : false
     kViewPointHeightFromTerrain : 0.75
     kViewPointHeightFromTerrainChangeThreshold : 0.6
     kCheckDynamicObstacleCollision : false
     kCollisionFrameCountMax : 3
 
-    kSensorRange : 12.0
+    kSensorRange : 7.5
     kNeighborRange : 3.0
     kCoverageOcclusionThr : 0.3
-    kCoverageDilationRadius : 1.0
+    kCoverageDilationRadius : 0.5
 
     # Grid World
     kGridWorldXNum : 121
@@ -106,7 +106,7 @@ tare_planner_node:
     kGridWorldNearbyGridNum : 5
     kMinAddPointNumSmall : 40
     kMinAddPointNumBig : 60
-    kMinAddFrontierPointNum : 15
+    kMinAddFrontierPointNum : 20
     kCellExploringToCoveredThr : 1
     kCellCoveredToExploringThr: 10
     kCellExploringToAlmostCoveredThr: 10

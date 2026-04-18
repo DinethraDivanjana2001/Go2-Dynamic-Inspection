@@ -32,7 +32,7 @@ run_localization() {
         start_active:="$active" \
         publish_localization_following_rep105:=False \
         start_mapping_enabled:=False \
-        lidar_topic_name:="/points_raw_decoded" \
+        lidar_topic_name:="/livox/lidar" \
         imu_topic_name:="/livox/imu" \
         mola_tf_base_link:="base_link" \
         mola_deskew_method:="MotionCompensationMethod::IMU" \
@@ -154,6 +154,17 @@ case "$cmd" in
         run_terrain &
         run_terrain_ext &
         run_far &
+        run_rviz &
+        wait
+        ;;
+    all-no-far)
+        trap cleanup SIGINT SIGTERM
+        run_localization "False" &
+        sleep 2
+        run_tf &
+        sleep 1
+        run_terrain &
+        run_terrain_ext &
         run_rviz &
         wait
         ;;

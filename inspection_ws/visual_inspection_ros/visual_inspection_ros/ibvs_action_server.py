@@ -111,11 +111,18 @@ class IBVSActionServer(Node):
         'people'            : 'person',
         'gauge'             : 'gauge',
         'pressure_gauge'    : 'gauge',
-        'main_cylinder'     : 'main_cylinder',   # not trained, kept for future
-        'unknown'           : '',                 # '' = detect all
+        'main_cylinder'     : 'main_cylinder',
+        'unknown'           : 'unknown',
         'any'               : '',
         ''                  : '',
     }
+
+    # Classes that only need Insta360 overview capture (no pan-tilt/IBVS)
+    # These are NOT YOLO-trained classes — we just snap Insta360 images
+    OVERVIEW_ONLY_CLASSES = {'unknown', 'main_cylinder'}
+
+    # YOLO-trained target classes (full IBVS pipeline)
+    IBVS_CLASSES = {'fire_extinguisher', 'door', 'person', 'gauge'}
 
     # YOLO confidence
     CONF_INSTA  = 0.5   # coarse detection
@@ -642,9 +649,11 @@ class IBVSActionServer(Node):
 
     # ---- Image capture (local save) ----------------------------------------
 
-    def _capture(self, n=4, obj_id=1, session_ts='', cls_name='object'):
+    def _capture(self, n=4, obj_id=1, session_ts='', cls_name='object',
+                 conf_score=0.0):
         """Capture n images from Logitech, save to inspection/ folder.
         Folder: captures/inspection/session_ts/cls_name/instance_N/
+        Also saves metadata.json with confidence score.
         Returns list of saved file paths."""
         base = Path(os.path.expanduser(
             self._mqtt_cfg.get('capture_dir', '~/Documents/Visual_Inspection_ws/captures')
@@ -656,12 +665,27 @@ class IBVSActionServer(Node):
         for i in range(n):
             f = self._get_logi()
             if f is not None:
-                fpath = cap_dir / f'img_{i+1:02d}.jpg'
+                fpath = cap_dir / f'img_{i+1:02d}_conf{conf_score:.2f}.jpg'
                 q = self._mqtt_cfg.get('jpeg_quality', 85)
                 cv2.imwrite(str(fpath), f, [cv2.IMWRITE_JPEG_QUALITY, q])
                 paths.append(fpath)
                 self.get_logger().info(f'  Saved {fpath.name}')
             time.sleep(self.CAPTURE_DELAY)
+
+        # Save metadata
+        meta = {
+            'class': cls_name,
+            'instance_id': obj_id,
+            'confidence': round(conf_score, 4),
+            'session': session_ts,
+            'num_images': len(paths),
+            'camera': 'logitech',
+        }
+        meta_path = cap_dir / 'metadata.json'
+        with open(meta_path, 'w') as f:
+            json.dump(meta, f, indent=2)
+        self.get_logger().info(f'  Metadata saved: conf={conf_score:.4f}')
+
         return paths
 
     def _capture_insta_overview(self, session_ts, location_label, count=1,
@@ -816,12 +840,21 @@ class IBVSActionServer(Node):
         target_obj_raw = getattr(goal_handle.request, 'target_object', '') or ''
 
         # Normalise target_object → YOLO class name
-        self._target_class = self.KNOWN_CLASSES.get(
+        resolved_target = self.KNOWN_CLASSES.get(
             target_obj_raw.lower().strip(), target_obj_raw.lower().strip())
-        if self._target_class:
+
+        # Decide mode: overview-only for unknown/main_cylinder, full IBVS for trained classes
+        if resolved_target in self.OVERVIEW_ONLY_CLASSES:
+            overview_only = True
+            self._target_class = ''   # no YOLO filter — just capture overview
+            self.get_logger().info(
+                f'  Target "{target_obj_raw}" → OVERVIEW-ONLY mode (no pan-tilt/IBVS)')
+        elif resolved_target:
+            self._target_class = resolved_target
             self.get_logger().info(
                 f'  Target object filter: "{target_obj_raw}" → YOLO class "{self._target_class}"')
         else:
+            self._target_class = ''
             self.get_logger().info('  No target object filter — detecting all classes')
 
         def abort(reason, in_back=False, found=0):
@@ -840,16 +873,18 @@ class IBVSActionServer(Node):
         session_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
 
         # ── OVERVIEW-ONLY MODE: bypass IBVS, just capture Insta360 snapshots ──
+        # Triggered by: overview_only=True in goal, OR target is unknown/main_cylinder
         if overview_only:
+            label = target_obj_raw or location_label
             self.get_logger().info(
                 f'  Overview-only: capturing {overview_count} Insta360 frames '
-                f'(label: {location_label})')
+                f'(label: {label})')
             self._pub_status('OVERVIEW')
             feedback.current_step = 'overview'
             goal_handle.publish_feedback(feedback)
             paths = self._capture_insta_overview(
-                session_ts, location_label, count=overview_count, folder='overview')
-            self._mqtt(paths, obj_id=0, session_ts=session_ts, cls_name=location_label)
+                session_ts, label, count=overview_count, folder='overview')
+            self._mqtt(paths, obj_id=0, session_ts=session_ts, cls_name=label)
             self._pub_status('IDLE')
             self._goal_active = False
             result.success           = len(paths) > 0
@@ -878,8 +913,21 @@ class IBVSActionServer(Node):
         if max_obj > 0:
             front_dets = front_dets[:max_obj]
 
+        # Number objects within each class by confidence (highest = 1)
+        # e.g., 2 gauges: gauge #1 (conf=0.92), gauge #2 (conf=0.78)
+        class_counters = {}  # {cls_name: count}
+        numbered_dets = []
+        for det in sorted(front_dets, key=lambda d: d[6], reverse=True):
+            cls = det[8]   # cls_name field (index 8 in Insta360 det tuple)
+            class_counters[cls] = class_counters.get(cls, 0) + 1
+            numbered_dets.append((*det, class_counters[cls]))  # append instance_num
+        # Re-sort by original order (front_dets was sorted by track_id)
+        front_dets = numbered_dets
+
         self.get_logger().info(
             f'  Processing {len(front_dets)} front object(s) in order')
+        for cls, cnt in class_counters.items():
+            self.get_logger().info(f'    {cls}: {cnt} instance(s)')
         if back_dets:
             self.get_logger().info(
                 f'  {len(back_dets)} back object(s) noted -- will signal BT after front done')
@@ -889,10 +937,10 @@ class IBVSActionServer(Node):
             if goal_handle.is_cancel_requested:
                 break
 
-            cx_obj, cy_obj, *_, conf, tid, cls_name = det
+            cx_obj, cy_obj, *_, conf, tid, cls_name, instance_num = det
             self.get_logger().info(
-                f'Object {obj_idx}/{len(front_dets)}: [{cls_name}] cx={cx_obj:.0f} '
-                f'cy={cy_obj:.0f} conf={conf:.2f} track_id={tid}')
+                f'Object {obj_idx}/{len(front_dets)}: [{cls_name} #{instance_num}] '
+                f'cx={cx_obj:.0f} cy={cy_obj:.0f} conf={conf:.2f} track_id={tid}')
 
             # ---- Coarse positioning ----
             self._pub_status('COARSE')
@@ -946,21 +994,24 @@ class IBVSActionServer(Node):
             self.get_logger().info(f'  Waiting {self.FOCUS_WAIT}s for autofocus...')
             time.sleep(self.FOCUS_WAIT)
 
-            # Capture 4 Logitech ROI images
-            paths = self._capture(self.IMAGES_PER_OBJ, obj_id=obj_idx,
-                                  session_ts=session_ts, cls_name=cls_name)
+            # Capture 4 Logitech ROI images (include confidence in filename)
+            paths = self._capture(self.IMAGES_PER_OBJ, obj_id=instance_num,
+                                  session_ts=session_ts, cls_name=cls_name,
+                                  conf_score=conf)
 
             # Also capture Insta360 overview with YOLO boxes
             overview_paths = self._capture_insta_overview(
                 session_ts, location_label, count=1,
-                folder='inspection', obj_cls=cls_name, obj_id=obj_idx)
+                folder='inspection', obj_cls=cls_name, obj_id=instance_num)
 
             all_paths = paths + overview_paths
             self.get_logger().info(
-                f'  Captured {len(paths)} ROI + {len(overview_paths)} overview = {len(all_paths)} total')
-            self._mqtt(all_paths, obj_idx, session_ts=session_ts, cls_name=cls_name)
+                f'  Captured {len(paths)} ROI + {len(overview_paths)} overview '
+                f'= {len(all_paths)} total  [{cls_name} #{instance_num} conf={conf:.2f}]')
+            self._mqtt(all_paths, instance_num, session_ts=session_ts, cls_name=cls_name)
             n_inspected += 1
-            self.get_logger().info(f'  Object {obj_idx} done ({n_inspected} total)')
+            self.get_logger().info(
+                f'  Object {obj_idx} ({cls_name} #{instance_num}) done ({n_inspected} total)')
 
         # ---- Done ----
         self._pub_status('IDLE')

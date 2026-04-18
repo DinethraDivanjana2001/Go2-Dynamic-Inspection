@@ -101,11 +101,12 @@ class IBVSActionServer(Node):
     MQTT_CFG_PATH   = os.path.expanduser('~/Documents/Visual_Inspection_ws/config/mqtt_config.yaml')
 
     # Known object classes the BT can request (BT name → YOLO class name)
+    # ACTUAL YOLO MODEL NAMES: {0: 'door', 1: 'extinguisher', 2: 'gauge', 3: 'person'}
     # BT sends human-readable names; we normalize them to match YOLO class names
     KNOWN_CLASSES = {
-        'fire_extinguisher' : 'fire_extinguisher',
-        'fire extinguisher' : 'fire_extinguisher',
-        'extinguisher'      : 'fire_extinguisher',
+        'fire_extinguisher' : 'extinguisher',
+        'fire extinguisher' : 'extinguisher',
+        'extinguisher'      : 'extinguisher',
         'door'              : 'door',
         'person'            : 'person',
         'people'            : 'person',
@@ -117,19 +118,28 @@ class IBVSActionServer(Node):
         ''                  : '',
     }
 
-    # Classes that only need Insta360 overview capture (no pan-tilt/IBVS)
-    # These are NOT YOLO-trained classes — we just snap Insta360 images
+    # Classes that only need overview capture (no IBVS, no pan-tilt)
+    # Servo goes home, captures BOTH Insta360 + Logitech overview
     OVERVIEW_ONLY_CLASSES = {'unknown', 'main_cylinder'}
 
     # YOLO-trained target classes (full IBVS pipeline)
-    IBVS_CLASSES = {'fire_extinguisher', 'door', 'person', 'gauge'}
+    IBVS_CLASSES = {'extinguisher', 'door', 'person', 'gauge'}
 
-    # YOLO confidence
-    CONF_INSTA  = 0.5   # coarse detection
-    CONF_IBVS   = 0.50  # raised from 0.3 — prevents false positives (cabinet, nozzle-only)
+    # Per-class confidence thresholds
+    # gauge is weak — lower threshold so we don't miss it
+    CLASS_CONF = {
+        'extinguisher': 0.5,
+        'door':         0.5,
+        'person':       0.5,
+        'gauge':        0.3,
+    }
+    CONF_DEFAULT    = 0.5   # fallback for unknown classes
+    CONF_YOLO_MIN   = 0.3   # YOLO runs at lowest needed threshold, post-filter per-class
+    CONF_IBVS       = 0.3   # IBVS detection (Logitech) — run low, post-filter per-class
 
     # Timeouts
     INSTA_SEARCH_TIMEOUT  = 20.0  # max wait for initial detection on Insta360
+    GAUGE_INSTA_TIMEOUT   = 8.0   # shorter timeout for gauge before sweep scan
     LOGI_FIRST_DET_WAIT   = 5.0   # wait for first detection in Logitech after coarse
     IBVS_TOTAL_TIMEOUT    = 40.0  # total IBVS time budget (seconds)
     IBVS_LOST_PATIENCE    = 3.0   # how long object can vanish during IBVS
@@ -149,7 +159,7 @@ class IBVSActionServer(Node):
     FX_LOGI = 640.0;  FY_LOGI = 640.0
 
     # Capture
-    IMAGES_PER_OBJ = 4
+    IMAGES_PER_OBJ = 3
     CAPTURE_DELAY  = 0.5
     FOCUS_WAIT     = 10.0  # seconds to wait after IBVS for autofocus before capture
     KEEP_LOCAL     = True  # True = always keep images locally (dataset mode)
@@ -344,9 +354,24 @@ class IBVSActionServer(Node):
 
         dets.sort(key=lambda d: d[6], reverse=True)
 
+        # Post-filter: apply per-class confidence thresholds
+        filtered = []
+        for d in dets:
+            cls = d[7].lower()
+            min_conf = self.CLASS_CONF.get(cls, self.CONF_DEFAULT)
+            if d[6] >= min_conf:
+                filtered.append(d)
+        dets = filtered
+
         # Filter to target class if specified
         if self._target_class:
-            dets = [d for d in dets if d[7].lower() == self._target_class.lower()]
+            tc = self._target_class.lower()
+            before = len(dets)
+            dets = [d for d in dets if d[7].lower() == tc]
+            if before > 0 and len(dets) == 0:
+                self.get_logger().debug(
+                    f'  [filter] {before} dets → 0 after class filter "{tc}" '
+                    f'(classes seen: {[d[7] for d in filtered]})')
 
         h, w = frame.shape[:2]
         cv2.line(debug, (w//2, 0), (w//2, h), (80, 80, 200), 1)
@@ -366,7 +391,7 @@ class IBVSActionServer(Node):
         frame = self._get_insta()
         if frame is None:
             return [], [], None, None
-        c = conf or self.CONF_INSTA
+        c = conf or self.CONF_YOLO_MIN
         with self._yolo_lock:
             # Use track() for ByteTrack assignment
             try:
@@ -420,11 +445,20 @@ class IBVSActionServer(Node):
             front.sort(key=lambda d: d[7] if d[7] >= 0 else d[6])
             back.sort( key=lambda d: d[7] if d[7] >= 0 else d[6])
 
+            # Post-filter: per-class confidence thresholds
+            for lst in (front, back):
+                lst[:] = [d for d in lst
+                          if d[6] >= self.CLASS_CONF.get(d[8].lower(), self.CONF_DEFAULT)]
+
             # Filter to target class if specified
             if self._target_class:
                 tc = self._target_class.lower()
+                before_f, before_b = len(front), len(back)
                 front = [d for d in front if d[8].lower() == tc]
                 back  = [d for d in back  if d[8].lower() == tc]
+                if (before_f + before_b) > 0 and len(front) + len(back) == 0:
+                    self.get_logger().debug(
+                        f'  [insta filter] {before_f+before_b} dets → 0 after "{tc}"')
 
         return front, back, frame, debug
 
@@ -507,21 +541,119 @@ class IBVSActionServer(Node):
         try:
             insta_f = self._get_insta()
             logi_f  = self._get_logi()
-            _, insta_dbg = self._detect_raw(insta_f, self.CONF_INSTA) if insta_f is not None else ([], None)
-            _, logi_dbg  = self._detect_raw(logi_f,  self.CONF_INSTA) if logi_f  is not None else ([], None)
+            _, insta_dbg = self._detect_raw(insta_f, self.CONF_YOLO_MIN) if insta_f is not None else ([], None)
+            _, logi_dbg  = self._detect_raw(logi_f,  self.CONF_YOLO_MIN) if logi_f  is not None else ([], None)
         finally:
             self._yolo_lock.release()
 
         self._publish_debug(insta_dbg, logi_dbg)
 
+    # ---- Gauge sweep scan (fallback when Insta360 misses gauge) --------------
+
+    # Sweep scan positions: serpentine pattern
+    # Tilt 20 → pan 20→160, Tilt 50 → pan 160→20, Tilt 80 → pan 20→160
+    SWEEP_TILTS = [20, 50, 80]
+    SWEEP_PAN_RANGE = (20, 160)
+    SWEEP_PAN_STEP = 10       # degrees per step
+    SWEEP_STEP_WAIT = 0.3     # seconds at each position
+
+    def _gauge_sweep_scan(self, goal_handle, feedback, session_ts):
+        """Serpentine sweep: move pan-tilt through positions while checking
+        Logitech for gauge detection. If found → IBVS immediately.
+        Returns Result if gauge found & inspected, None if sweep found nothing."""
+        self._mode = 'SWEEP'
+        self.get_logger().info('  Gauge sweep scan: tilt=[20,50,80] pan=[20→160]')
+        feedback.current_step = 'detecting'
+        goal_handle.publish_feedback(feedback)
+
+        for sweep_idx, tilt in enumerate(self.SWEEP_TILTS):
+            # Alternate pan direction for serpentine
+            if sweep_idx % 2 == 0:
+                pan_range = range(self.SWEEP_PAN_RANGE[0],
+                                  self.SWEEP_PAN_RANGE[1] + 1,
+                                  self.SWEEP_PAN_STEP)
+            else:
+                pan_range = range(self.SWEEP_PAN_RANGE[1],
+                                  self.SWEEP_PAN_RANGE[0] - 1,
+                                  -self.SWEEP_PAN_STEP)
+
+            for pan in pan_range:
+                if goal_handle.is_cancel_requested:
+                    return None
+
+                self._servo(tilt, pan)
+                time.sleep(self.SWEEP_STEP_WAIT)
+
+                # Check Logitech for gauge
+                dets, _, logi_dbg = self._detect_logi()
+                # Also update debug display
+                insta_f = self._get_insta()
+                self._publish_debug(insta_f, logi_dbg)
+
+                if dets:
+                    self.get_logger().info(
+                        f'  SWEEP: gauge found at pan={pan} tilt={tilt}! '
+                        f'Starting IBVS directly')
+                    self._pub_status('IBVS')
+
+                    # Run IBVS from current position
+                    centred = self._ibvs(goal_handle, pan, tilt, feedback, 1)
+                    if centred:
+                        # Capture
+                        self._pub_status('CAPTURING')
+                        self.get_logger().info(
+                            f'  Waiting {self.FOCUS_WAIT}s for autofocus...')
+                        time.sleep(self.FOCUS_WAIT)
+
+                        conf = dets[0][6]
+                        paths = self._capture(
+                            self.IMAGES_PER_OBJ, obj_id=1,
+                            session_ts=session_ts, cls_name='gauge',
+                            conf_score=conf)
+                        overview_paths = self._capture_insta_overview(
+                            session_ts, 'sweep_gauge', count=1,
+                            folder='inspection', obj_cls='gauge', obj_id=1)
+
+                        all_paths = paths + overview_paths
+                        self._mqtt(all_paths, 1, session_ts=session_ts,
+                                   cls_name='gauge')
+
+                        self.get_logger().info(
+                            f'  Sweep gauge inspection done: {len(all_paths)} images')
+
+                        # Build result
+                        result = InspectObjects.Result()
+                        result.success = True
+                        result.objects_inspected = 1
+                        result.objects_found = 1
+                        result.object_in_back = False
+                        result.failed_reason = ''
+
+                        self._pub_status('IDLE')
+                        self._goal_active = False
+                        self._home()
+                        goal_handle.succeed()
+                        return result
+                    else:
+                        self.get_logger().warn('  Sweep IBVS did not converge')
+                        # Continue sweep
+
+        self.get_logger().warn('  Gauge sweep scan complete — no gauge found')
+        return None
+
     # ---- Stage 1: search Insta360 -------------------------------------------
 
     def _search_insta(self, goal_handle):
-        """Search Insta360 up to 20s.
+        """Search Insta360 up to timeout.
+        For gauge: uses shorter timeout (GAUGE_INSTA_TIMEOUT) before sweep scan.
         Returns (front_dets, back_dets) or (None, None) on timeout."""
         self._mode = 'DETECTING'
-        self.get_logger().info(f'  Searching Insta360 (up to {self.INSTA_SEARCH_TIMEOUT}s)...')
-        deadline = time.time() + self.INSTA_SEARCH_TIMEOUT
+        # Gauge gets shorter timeout — we'll fall back to sweep scan
+        timeout = (self.GAUGE_INSTA_TIMEOUT
+                   if self._target_class == 'gauge'
+                   else self.INSTA_SEARCH_TIMEOUT)
+        self.get_logger().info(f'  Searching Insta360 (up to {timeout}s)...')
+        deadline = time.time() + timeout
 
         while time.time() < deadline:
             if goal_handle.is_cancel_requested:
@@ -542,7 +674,7 @@ class IBVSActionServer(Node):
 
             time.sleep(0.1)
 
-        self.get_logger().warn('  No objects found on Insta360 within timeout')
+        self.get_logger().warn(f'  No objects found on Insta360 within {timeout}s')
         return None, None
 
     # ---- Stage 2: IBVS on Logitech ------------------------------------------
@@ -587,6 +719,16 @@ class IBVSActionServer(Node):
                 continue
 
             last_seen_time = now
+
+            # Filter to target class — IBVS only considers the requested object
+            if self._target_class:
+                tc = self._target_class.lower()
+                dets = [d for d in dets if d[7].lower() == tc]
+                if not dets:
+                    # Target class not visible in Logitech right now
+                    time.sleep(dt)
+                    continue
+
             cx_d, cy_d = dets[0][0], dets[0][1]
             ex  = cx_d - self.CX_LOGI
             ey  = cy_d - self.CY_LOGI
@@ -623,9 +765,9 @@ class IBVSActionServer(Node):
             dp = -(self.KP*theta_x + self.KI*integral_pan + self.KD*(theta_x-prev_ep)/dt)
             prev_ep = theta_x
 
-            # PID tilt
+            # PID tilt (negated for TILT_REVERSED servo mount)
             integral_tilt = np.clip(integral_tilt + theta_y * dt, -50, 50)
-            dt_ = (self.KP*theta_y + self.KI*integral_tilt + self.KD*(theta_y-prev_et)/dt)   # +ve: tilt up when object above centre
+            dt_ = -(self.KP*theta_y + self.KI*integral_tilt + self.KD*(theta_y-prev_et)/dt)
             prev_et = theta_y
 
             # Velocity limit
@@ -690,7 +832,7 @@ class IBVSActionServer(Node):
 
     def _capture_insta_overview(self, session_ts, location_label, count=1,
                                  folder='inspection', obj_cls='', obj_id=1):
-        """Capture Insta360 frames with YOLO drawn.
+        """Capture Insta360 RAW frames (no bounding boxes).
         For ROI inspection: folder='inspection', saved alongside ROI images.
         For BT overview request: folder='overview', standalone.
         Returns list of saved file paths."""
@@ -706,14 +848,15 @@ class IBVSActionServer(Node):
         q = self._mqtt_cfg.get('jpeg_quality', 85)
         paths = []
         for i in range(count):
-            _, _, _, dbg = self._detect_insta()
-            if dbg is not None:
+            # Save RAW frame — no bounding boxes
+            raw = self._get_insta()
+            if raw is not None:
                 lbl = location_label.replace(' ', '_') or 'unknown'
                 fname = f'overview_{lbl}_{i+1:02d}.jpg'
                 fpath = cap_dir / fname
-                cv2.imwrite(str(fpath), dbg, [cv2.IMWRITE_JPEG_QUALITY, q])
+                cv2.imwrite(str(fpath), raw, [cv2.IMWRITE_JPEG_QUALITY, q])
                 paths.append(fpath)
-                self.get_logger().info(f'  Insta360 overview saved: {fpath.name}')
+                self.get_logger().info(f'  Insta360 overview saved (raw): {fpath.name}')
             time.sleep(0.3)
         return paths
 
@@ -872,31 +1015,58 @@ class IBVSActionServer(Node):
 
         session_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-        # ── OVERVIEW-ONLY MODE: bypass IBVS, just capture Insta360 snapshots ──
-        # Triggered by: overview_only=True in goal, OR target is unknown/main_cylinder
+        # ── OVERVIEW-ONLY MODE: for unknown/main_cylinder ──
+        # Servo goes home (90,90), captures BOTH Insta360 + Logitech overview
+        # No pan-tilt, no IBVS — we can't identify these objects with YOLO
         if overview_only:
             label = target_obj_raw or location_label
             self.get_logger().info(
-                f'  Overview-only: capturing {overview_count} Insta360 frames '
-                f'(label: {label})')
+                f'  Overview-only ({label}): servo home → capture both cameras')
             self._pub_status('OVERVIEW')
             feedback.current_step = 'overview'
             goal_handle.publish_feedback(feedback)
-            paths = self._capture_insta_overview(
+
+            # Move servo to home position
+            self._home()
+            time.sleep(2.0)  # wait for servo to settle
+
+            # Capture Insta360 overview images
+            insta_paths = self._capture_insta_overview(
                 session_ts, label, count=overview_count, folder='overview')
-            self._mqtt(paths, obj_id=0, session_ts=session_ts, cls_name=label)
+
+            # Also capture 1 Logitech image from home position
+            logi_paths = self._capture(
+                n=1, obj_id=1,
+                session_ts=session_ts, cls_name=label, conf_score=0.0)
+
+            all_paths = insta_paths + logi_paths
+            self.get_logger().info(
+                f'  Overview done: {len(insta_paths)} Insta360 + '
+                f'{len(logi_paths)} Logitech = {len(all_paths)} total')
+            self._mqtt(all_paths, obj_id=0, session_ts=session_ts, cls_name=label)
+
             self._pub_status('IDLE')
             self._goal_active = False
-            result.success           = len(paths) > 0
+            result.success           = len(all_paths) > 0
             result.objects_inspected = 0
-            result.objects_found     = len(paths)
+            result.objects_found     = len(all_paths)
             result.object_in_back    = False
-            result.failed_reason     = '' if paths else 'no_frames'
+            result.failed_reason     = '' if all_paths else 'no_frames'
             goal_handle.succeed()
             return result
 
         # ── FULL INSPECTION MODE ──────────────────────────────────────────────
         front_dets, back_dets = self._search_insta(goal_handle)
+
+        # ── GAUGE SWEEP SCAN: if gauge not found on Insta360, sweep with Logitech ──
+        if (front_dets is None or (not front_dets and not back_dets)) and self._target_class == 'gauge':
+            self.get_logger().info('  Gauge not found on Insta360 — starting sweep scan with Logitech')
+            sweep_result = self._gauge_sweep_scan(goal_handle, feedback, session_ts)
+            if sweep_result is not None:
+                # sweep_result is the final Result
+                return sweep_result
+            # If sweep also failed, fall through to abort
+            return abort('no_detection')
 
         if front_dets is None and back_dets is None:
             return abort('no_detection')

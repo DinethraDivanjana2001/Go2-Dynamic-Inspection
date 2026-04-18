@@ -27,7 +27,7 @@ class DlioManager(Node):
         self._is_running = False
 
         # Declare parameters (mirrors launch file args)
-        self.declare_parameter('pointcloud_topic', '/livox/lidar')
+        self.declare_parameter('pointcloud_topic', '/points_raw_decoded')
         self.declare_parameter('imu_topic', '/livox/imu')
 
         self._srv = self.create_service(

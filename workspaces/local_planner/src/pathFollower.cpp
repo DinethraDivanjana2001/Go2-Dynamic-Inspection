@@ -16,6 +16,7 @@
 #include <std_msgs/msg/int8.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <sensor_msgs/msg/imu.h>
 
 #include <geometry_msgs/msg/twist.hpp>  // Change from twist_stamped.hpp
@@ -101,6 +102,12 @@ bool pathInit = false;
 bool navFwd = true;
 double switchTime = 0;
 
+// Goal pose tracking for rotation at goal
+bool goalPoseReceived = false;
+float goalPoseYaw = 0;       // desired yaw from goal pose (world frame)
+bool atGoalRotating = false;  // state: we've arrived and are now rotating
+bool goalRotationDone = false; // latch: once we reach the target angle, stop permanently
+
 nav_msgs::msg::Path path;
 rclcpp::Node::SharedPtr nh;
 
@@ -147,6 +154,25 @@ void pathHandler(const nav_msgs::msg::Path::ConstSharedPtr pathIn)
 
   pathPointID = 0;
   pathInit = true;
+
+  // When a new path with >1 points arrives, we're no longer in "at goal rotating" mode
+  if (pathSize > 1) {
+    atGoalRotating = false;
+    goalRotationDone = false;
+  }
+}
+
+// Separate subscriber for the goal pose (with orientation)
+void goalPoseHandler(const geometry_msgs::msg::PoseStamped::ConstSharedPtr goalPose)
+{
+  double roll, pitch, yaw;
+  geometry_msgs::msg::Quaternion geoQuat = goalPose->pose.orientation;
+  tf2::Matrix3x3(tf2::Quaternion(geoQuat.x, geoQuat.y, geoQuat.z, geoQuat.w)).getRPY(roll, pitch, yaw);
+  goalPoseYaw = yaw;
+  goalPoseReceived = true;
+  atGoalRotating = false;  // reset rotation state on new goal
+  goalRotationDone = false; // reset done latch on new goal
+  RCLCPP_INFO(nh->get_logger(), "Goal pose received: yaw = %.2f deg", yaw * 180.0 / PI);
 }
 
 void joystickHandler(const sensor_msgs::msg::Joy::ConstSharedPtr joy)
@@ -260,6 +286,9 @@ int main(int argc, char** argv)
 
   auto subStop = nh->create_subscription<std_msgs::msg::Int8>("/stop", 5, stopHandler);
 
+  // Subscribe to goal pose for orientation target
+  auto subGoalPose = nh->create_subscription<geometry_msgs::msg::PoseStamped>("/goal_pose", 5, goalPoseHandler);
+
   // auto pubSpeed = nh->create_publisher<geometry_msgs::msg::TwistStamped>("/cmd_vel", 5);
 
   auto pubSpeed = nh->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 5);  // Change from TwistStamped
@@ -283,130 +312,208 @@ int main(int argc, char** argv)
     rclcpp::spin_some(nh);
 
     if (pathInit) {
+
+      // ===== GOAL ROTATION MODE =====
+      // When localPlanner publishes pathSize<=1, the robot has arrived at the goal.
+      // If we have a goal orientation and noRotAtGoal is false, rotate in place.
+      int pathSize = path.poses.size();
+
+      // Compute vehicle position relative to when the path was received
       float vehicleXRel = cos(vehicleYawRec) * (vehicleX - vehicleXRec) 
                         + sin(vehicleYawRec) * (vehicleY - vehicleYRec);
       float vehicleYRel = -sin(vehicleYawRec) * (vehicleX - vehicleXRec) 
                         + cos(vehicleYawRec) * (vehicleY - vehicleYRec);
 
-      int pathSize = path.poses.size();
       float endDisX = path.poses[pathSize - 1].pose.position.x - vehicleXRel;
       float endDisY = path.poses[pathSize - 1].pose.position.y - vehicleYRel;
       float endDis = sqrt(endDisX * endDisX + endDisY * endDisY);
 
-      float disX, disY, dis;
-      while (pathPointID < pathSize - 1) {
+      bool atGoalPosition = (pathSize <= 1) || (endDis < stopDisThre);
+
+      // Log the decision state every 200ms
+      RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 200,
+        "[STATE] pathSize=%d, endDis=%.2f, atGoal=%d, goalPoseReceived=%d, noRotAtGoal=%d, atGoalRotating=%d, goalRotationDone=%d, vehicleYaw=%.2f deg, goalPoseYaw=%.2f deg",
+        pathSize, endDis, atGoalPosition, goalPoseReceived, noRotAtGoal, atGoalRotating, goalRotationDone,
+        vehicleYaw * 180.0 / PI, goalPoseYaw * 180.0 / PI);
+
+      if (atGoalPosition && goalPoseReceived && !noRotAtGoal && !goalRotationDone) {
+        // We are at the goal position — enter/stay in rotation mode
+        atGoalRotating = true;
+        vehicleSpeed = 0;  // no linear motion
+
+        if (goalRotationDone) {
+          // Already reached target angle — stay stopped
+          vehicleYawRate = 0;
+          RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 2000,
+            "[GOAL_ROT] DONE (latched). vehicleYaw=%.2f deg, goalYaw=%.2f deg",
+            vehicleYaw * 180.0 / PI, goalPoseYaw * 180.0 / PI);
+        } else {
+          // Compute yaw error in world frame
+          float yawError = goalPoseYaw - vehicleYaw;
+          if (yawError > PI) yawError -= 2 * PI;
+          else if (yawError < -PI) yawError += 2 * PI;
+
+          RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 200,
+            "[GOAL_ROT] yawError=%.4f rad (%.2f deg), dirDiffThre=%.4f rad (%.2f deg), within=%d",
+            yawError, yawError * 180.0 / PI, dirDiffThre, dirDiffThre * 180.0 / PI, (fabs(yawError) < dirDiffThre));
+
+          if (fabs(yawError) < dirDiffThre) {
+            // Within threshold — latch done and stop permanently
+            vehicleYawRate = 0;
+            goalRotationDone = true;
+            RCLCPP_INFO(nh->get_logger(),
+              "[GOAL_ROT] === COMPLETE === yawError=%.2f deg (thre=%.2f deg). LATCHING DONE.", 
+              yawError * 180.0 / PI, dirDiffThre * 180.0 / PI);
+          } else {
+            // Proportional yaw control with reduced max rate to prevent overshoot
+            float goalMaxYawRate = maxYawRate * 0.5 * PI / 180.0;  // half of maxYawRate
+            vehicleYawRate = -stopYawRateGain * yawError;
+            float rawYawRate = vehicleYawRate;
+            if (vehicleYawRate > goalMaxYawRate) vehicleYawRate = goalMaxYawRate;
+            else if (vehicleYawRate < -goalMaxYawRate) vehicleYawRate = -goalMaxYawRate;
+
+            RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 200,
+              "[GOAL_ROT] ROTATING: yawErr=%.2f deg, rawRate=%.4f, clampedRate=%.4f, maxRate=%.4f, gain=%.2f, cmd_vel.z=%.4f", 
+              yawError * 180.0 / PI, rawYawRate, vehicleYawRate, goalMaxYawRate, stopYawRateGain, vehicleYawRate);
+          }
+        }
+
+        if (safetyStop >= 1) vehicleSpeed = 0;
+        if (safetyStop >= 2) vehicleYawRate = 0;
+
+        pubSkipCount--;
+        if (pubSkipCount < 0) {
+          cmd_vel.linear.x = 0;
+          cmd_vel.angular.z = vehicleYawRate;
+          pubSpeed->publish(cmd_vel);
+          pubSkipCount = pubSkipNum;
+        }
+
+      } else if (atGoalPosition) {
+        // ===== AT GOAL, NO ROTATION NEEDED =====
+        vehicleSpeed = 0;
+        vehicleYawRate = 0;
+        atGoalRotating = false;
+
+        if (safetyStop >= 1) vehicleSpeed = 0;
+        if (safetyStop >= 2) vehicleYawRate = 0;
+
+        pubSkipCount--;
+        if (pubSkipCount < 0) {
+          cmd_vel.linear.x = 0;
+          cmd_vel.angular.z = 0;
+          pubSpeed->publish(cmd_vel);
+          pubSkipCount = pubSkipNum;
+        }
+
+        RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 2000,
+          "[AT_GOAL] Stopped. endDis=%.2f, goalPoseRcvd=%d, rotDone=%d", 
+          endDis, goalPoseReceived, goalRotationDone);
+
+      } else {
+        // ===== NORMAL PATH FOLLOWING MODE =====
+        atGoalRotating = false;
+
+        float disX, disY, dis;
+        while (pathPointID < pathSize - 1) {
+          disX = path.poses[pathPointID].pose.position.x - vehicleXRel;
+          disY = path.poses[pathPointID].pose.position.y - vehicleYRel;
+          dis = sqrt(disX * disX + disY * disY);
+          if (dis < lookAheadDis) {
+            pathPointID++;
+          } else {
+            break;
+          }
+        }
+
         disX = path.poses[pathPointID].pose.position.x - vehicleXRel;
         disY = path.poses[pathPointID].pose.position.y - vehicleYRel;
         dis = sqrt(disX * disX + disY * disY);
-        if (dis < lookAheadDis) {
-          pathPointID++;
-        } else {
-          break;
-        }
-      }
+        float pathDir = atan2(disY, disX);
 
-      disX = path.poses[pathPointID].pose.position.x - vehicleXRel;
-      disY = path.poses[pathPointID].pose.position.y - vehicleYRel;
-      dis = sqrt(disX * disX + disY * disY);
-      float pathDir = atan2(disY, disX);
+        float dirDiff = vehicleYaw - vehicleYawRec - pathDir;
+        if (dirDiff > PI) dirDiff -= 2 * PI;
+        else if (dirDiff < -PI) dirDiff += 2 * PI;
+        if (dirDiff > PI) dirDiff -= 2 * PI;
+        else if (dirDiff < -PI) dirDiff += 2 * PI;
 
-      if (pathPointID == pathSize - 1 && dis < stopDisThre) {
-        geometry_msgs::msg::Quaternion geoQuat = path.poses[pathSize - 1].pose.orientation;
-        if (geoQuat.w != 0 || geoQuat.x != 0 || geoQuat.y != 0 || geoQuat.z != 0) {
-          double roll, pitch, yaw;
-          tf2::Matrix3x3(tf2::Quaternion(geoQuat.x, geoQuat.y, geoQuat.z, geoQuat.w)).getRPY(roll, pitch, yaw);
-          pathDir = yaw;
-        } else if (pathSize > 1) {
-          float dx = path.poses[pathSize - 1].pose.position.x - path.poses[pathSize - 2].pose.position.x;
-          float dy = path.poses[pathSize - 1].pose.position.y - path.poses[pathSize - 2].pose.position.y;
-          if (sqrt(dx*dx + dy*dy) > 0.01) {
-            pathDir = atan2(dy, dx);
+        if (twoWayDrive) {
+          double time = nh->now().seconds();
+          if (fabs(dirDiff) > PI / 2 && navFwd && time - switchTime > switchTimeThre) {
+            navFwd = false;
+            switchTime = time;
+          } else if (fabs(dirDiff) < PI / 2 && !navFwd && time - switchTime > switchTimeThre) {
+            navFwd = true;
+            switchTime = time;
           }
         }
-      }
 
-      float dirDiff = vehicleYaw - vehicleYawRec - pathDir;
-      if (dirDiff > PI) dirDiff -= 2 * PI;
-      else if (dirDiff < -PI) dirDiff += 2 * PI;
-      if (dirDiff > PI) dirDiff -= 2 * PI;
-      else if (dirDiff < -PI) dirDiff += 2 * PI;
-
-      if (twoWayDrive) {
-        double time = nh->now().seconds();
-        if (fabs(dirDiff) > PI / 2 && navFwd && time - switchTime > switchTimeThre) {
-          navFwd = false;
-          switchTime = time;
-        } else if (fabs(dirDiff) < PI / 2 && !navFwd && time - switchTime > switchTimeThre) {
-          navFwd = true;
-          switchTime = time;
+        if (autonomyMode && nh->now().seconds() - joyTime > joyToSpeedDelay && joySpeed == 0) {
+          joySpeed = autonomySpeed / maxSpeed;
+          if (joySpeed < 0) joySpeed = 0;
+          else if (joySpeed > 1.0) joySpeed = 1.0;
         }
-      }
 
-      if (autonomyMode && nh->now().seconds() - joyTime > joyToSpeedDelay && joySpeed == 0) {
-        joySpeed = autonomySpeed / maxSpeed;
-        if (joySpeed < 0) joySpeed = 0;
-        else if (joySpeed > 1.0) joySpeed = 1.0;
-      }
+        float joySpeed2 = maxSpeed * joySpeed;
+        if (!navFwd) {
+          dirDiff += PI;
+          if (dirDiff > PI) dirDiff -= 2 * PI;
+          joySpeed2 *= -1;
+        }
 
-      float joySpeed2 = maxSpeed * joySpeed;
-      if (!navFwd) {
-        dirDiff += PI;
-        if (dirDiff > PI) dirDiff -= 2 * PI;
-        joySpeed2 *= -1;
-      }
+        if (fabs(vehicleSpeed) < 2.0 * maxAccel / 100.0) vehicleYawRate = -stopYawRateGain * dirDiff;
+        else vehicleYawRate = -yawRateGain * dirDiff;
 
-      if (fabs(vehicleSpeed) < 2.0 * maxAccel / 100.0) vehicleYawRate = -stopYawRateGain * dirDiff;
-      else vehicleYawRate = -yawRateGain * dirDiff;
+        if (vehicleYawRate > maxYawRate * PI / 180.0) vehicleYawRate = maxYawRate * PI / 180.0;
+        else if (vehicleYawRate < -maxYawRate * PI / 180.0) vehicleYawRate = -maxYawRate * PI / 180.0;
 
-      if (vehicleYawRate > maxYawRate * PI / 180.0) vehicleYawRate = maxYawRate * PI / 180.0;
-      else if (vehicleYawRate < -maxYawRate * PI / 180.0) vehicleYawRate = -maxYawRate * PI / 180.0;
+        if (joySpeed2 == 0 && !autonomyMode) {
+          vehicleYawRate = maxYawRate * joyYaw * PI / 180.0;
+        } else if (pathSize <= 1 || (dis < stopDisThre && noRotAtGoal)) {
+          vehicleYawRate = 0;
+        }
 
-      if (joySpeed2 == 0 && !autonomyMode) {
-        vehicleYawRate = maxYawRate * joyYaw * PI / 180.0;
-      } else if (pathSize <= 1 || (dis < stopDisThre && noRotAtGoal) || (dis < stopDisThre && fabs(dirDiff) < dirDiffThre)) {
-        vehicleYawRate = 0;
-      }
+        if (pathSize <= 1) {
+          joySpeed2 = 0;
+        } else if (endDis / slowDwnDisThre < joySpeed) {
+          joySpeed2 *= endDis / slowDwnDisThre;
+        }
 
-      if (pathSize <= 1) {
-        joySpeed2 = 0;
-      } else if (endDis / slowDwnDisThre < joySpeed) {
-        joySpeed2 *= endDis / slowDwnDisThre;
-      }
+        float joySpeed3 = joySpeed2;
+        if (odomTime < slowInitTime + slowTime1 && slowInitTime > 0) joySpeed3 *= slowRate1;
+        else if (odomTime < slowInitTime + slowTime1 + slowTime2 && slowInitTime > 0) joySpeed3 *= slowRate2;
 
-      float joySpeed3 = joySpeed2;
-      if (odomTime < slowInitTime + slowTime1 && slowInitTime > 0) joySpeed3 *= slowRate1;
-      else if (odomTime < slowInitTime + slowTime1 + slowTime2 && slowInitTime > 0) joySpeed3 *= slowRate2;
+        if (fabs(dirDiff) < dirDiffThre && dis > stopDisThre) {
+          if (vehicleSpeed < joySpeed3) vehicleSpeed += maxAccel / 100.0;
+          else if (vehicleSpeed > joySpeed3) vehicleSpeed -= maxAccel / 100.0;
+        } else {
+          if (vehicleSpeed > 0) vehicleSpeed -= maxAccel / 100.0;
+          else if (vehicleSpeed < 0) vehicleSpeed += maxAccel / 100.0;
+        }
 
-      if (fabs(dirDiff) < dirDiffThre && dis > stopDisThre) {
-        if (vehicleSpeed < joySpeed3) vehicleSpeed += maxAccel / 100.0;
-        else if (vehicleSpeed > joySpeed3) vehicleSpeed -= maxAccel / 100.0;
-      } else {
-        if (vehicleSpeed > 0) vehicleSpeed -= maxAccel / 100.0;
-        else if (vehicleSpeed < 0) vehicleSpeed += maxAccel / 100.0;
-      }
+        if (odomTime < stopInitTime + stopTime && stopInitTime > 0) {
+          vehicleSpeed = 0;
+          vehicleYawRate = 0;
+        }
 
-      if (odomTime < stopInitTime + stopTime && stopInitTime > 0) {
-        vehicleSpeed = 0;
-        vehicleYawRate = 0;
-      }
+        if (safetyStop >= 1) vehicleSpeed = 0;
+        if (safetyStop >= 2) vehicleYawRate = 0;
 
-      if (safetyStop >= 1) vehicleSpeed = 0;
-      if (safetyStop >= 2) vehicleYawRate = 0;
+        pubSkipCount--;
+        if (pubSkipCount < 0) {
+          if (fabs(vehicleSpeed) <= maxAccel / 100.0) cmd_vel.linear.x = 0; 
+          else cmd_vel.linear.x = vehicleSpeed;  
+          cmd_vel.angular.z = vehicleYawRate;  
+          pubSpeed->publish(cmd_vel);
 
-      pubSkipCount--;
-      if (pubSkipCount < 0) {
-        if (fabs(vehicleSpeed) <= maxAccel / 100.0) cmd_vel.linear.x = 0; 
-        else cmd_vel.linear.x = vehicleSpeed;  
-        cmd_vel.angular.z = vehicleYawRate;  
-        pubSpeed->publish(cmd_vel);
+          RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 1000, "Vel: %.2f, Yaw: %.2f, JoyS: %.2f, Auto: %d, Safe: %d, Path: %d", 
+                      vehicleSpeed, vehicleYawRate, joySpeed, autonomyMode, safetyStop, pathInit);
 
-        RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 1000, "Vel: %.2f, Yaw: %.2f, JoyS: %.2f, Auto: %d, Safe: %d, Path: %d", 
-                    vehicleSpeed, vehicleYawRate, joySpeed, autonomyMode, safetyStop, pathInit);
+          RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 1000, "DEBUG: pathSize=%d, dirDiff=%.2f (thre=%.2f), dis=%.2f (thre=%.2f), joySpeed=%.2f, joySpeed2=%.2f, joySpeed3=%.2f, vehicleSpeed=%.2f, stopTime=%.2f, slowTime1=%.2f, odomTime=%.2f, stopInitTime=%.2f", 
+                      pathSize, dirDiff, dirDiffThre, dis, stopDisThre, joySpeed, joySpeed2, joySpeed3, vehicleSpeed, stopTime, slowTime1, odomTime, stopInitTime);
 
-        RCLCPP_INFO_THROTTLE(nh->get_logger(), *nh->get_clock(), 1000, "DEBUG: pathSize=%d, dirDiff=%.2f (thre=%.2f), dis=%.2f (thre=%.2f), joySpeed=%.2f, joySpeed2=%.2f, joySpeed3=%.2f, vehicleSpeed=%.2f, stopTime=%.2f, slowTime1=%.2f, odomTime=%.2f, stopInitTime=%.2f", 
-                    pathSize, dirDiff, dirDiffThre, dis, stopDisThre, joySpeed, joySpeed2, joySpeed3, vehicleSpeed, stopTime, slowTime1, odomTime, stopInitTime);
-
-        pubSkipCount = pubSkipNum;
+          pubSkipCount = pubSkipNum;
+        }
       }
     }
 

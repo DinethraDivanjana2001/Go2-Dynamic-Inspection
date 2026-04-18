@@ -55,7 +55,7 @@ class RecorderNode(Node):
 
         cmd = [
             "ros2", "bag", "record", 
-            "/livox/lidar", "/livox/imu", 
+            "/points_raw_decoded", "/livox/imu", 
             "-s", "mcap", 
             "-o", self.bag_dir
         ]

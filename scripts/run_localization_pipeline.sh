@@ -19,6 +19,7 @@ usage() {
     echo "  far                      Launch far_planner"
     echo "  local                    Launch local_planner"
     echo "  foxglove                 Start Foxglove bridge node"
+    echo "  dlio                     Launch DLIO odometry and mapping (start_dlio:=false)"
     echo "  all                      Launch localization + terrain + terrain-ext + far + local + tf + foxglove"
     echo "  all-active               Same as 'all' but start localization active and play default bag"
 }
@@ -31,11 +32,11 @@ run_localization() {
         start_active:="$active" \
         publish_localization_following_rep105:=False \
         start_mapping_enabled:=False \
-        lidar_topic_name:="/livox/lidar" \
+        lidar_topic_name:="/points_raw_decoded" \
         imu_topic_name:="/livox/imu" \
         mola_tf_base_link:="base_link" \
         mola_deskew_method:="MotionCompensationMethod::IMU" \
-        mola_initial_map_mm_file:="/home/yasiru/Documents/Far_planner_test/maps/vision_lab/myMap.mm"
+        mola_initial_map_mm_file:="/home/yasiru/Documents/Far_planner_test/maps/Inspection/myMap.mm"
 }
 
 run_tf() {
@@ -75,6 +76,12 @@ run_rviz() {
     rviz2 -d /home/yasiru/Downloads/far_planner.rviz
 }
 
+run_dlio() {
+    cd "$WORKSPACE_ROOT/workspaces/dlio"
+    source install/setup.bash
+    ros2 launch direct_lidar_inertial_odometry dlio_mapping.launch.py start_dlio:=false
+}
+
 cleanup() {
     echo ""
     echo "Stopping launched processes..."
@@ -89,6 +96,9 @@ case "$cmd" in
         ;;
     localization-active)
         run_localization "True"
+        ;;
+    dlio)
+        run_dlio
         ;;
     foxglove)
         run_foxglove

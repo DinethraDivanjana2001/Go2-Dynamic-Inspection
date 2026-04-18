@@ -162,7 +162,7 @@ mm-viewer /home/yasiru/Documents/Far_planner_test/maps/myMap.mm  -l libmola_metr
 
 /home/yasiru/Documents/Far_planner_test/scripts/run_localization_pipeline.sh all-real
 /home/yasiru/Documents/Far_planner_test/scripts/run_localization_pipeline.sh foxglove
-
+/home/yasiru/Documents/Far_planner_test/scripts/run_localization_pipeline.sh local
 
 /home/yasiru/Documents/Far_planner_test/scripts/launch_mapping_nodes.sh
 
@@ -293,3 +293,17 @@ ros2 service call /dlio/enable std_srvs/srv/SetBool "{data: true}"
 
 # Turn DLIO OFF:
 ros2 service call /dlio/enable std_srvs/srv/SetBool "{data: false}"
+
+
+ros2 topic pub /goal_point geometry_msgs/msg/PointStamped "
+header:
+  frame_id: 'map'
+point:
+  x: 1.0
+  y: 2.0
+  z: 0.0
+"
+
+ros2 run point_cloud_transport republish   --ros-args   --remap in:=/livox/lidar   --remap out:=/points_compressed   -p out_transport:=cloudini
+
+ros2 run cloudini_ros cloudini_topic_converter   --ros-args   -p compressing:=false   -p topic_input:=/out/cloudini   -p topic_output:=/points_raw_decoded

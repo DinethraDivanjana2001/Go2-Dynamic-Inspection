@@ -65,8 +65,8 @@
     <param name="maxSpeed" value="$(var maxSpeed)" />
     <param name="maxAccel" value="1.5" />
     <param name="switchTimeThre" value="1.0" />
-    <param name="dirDiffThre" value="0.2" />
-    <param name="stopDisThre" value="0.4" />
+    <param name="dirDiffThre" value="0.1" />
+    <param name="stopDisThre" value="0.2" />
     <param name="slowDwnDisThre" value="1.0" />
     <param name="useInclRateToSlow" value="false" />
     <param name="inclRateThre" value="120.0" />

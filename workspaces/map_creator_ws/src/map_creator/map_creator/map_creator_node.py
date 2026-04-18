@@ -53,7 +53,7 @@ class MapCreatorNode(Node):
         env['MOLA_LO_INITIAL_LOCALIZATION_METHOD'] = 'InitLocalization::PitchAndRollFromIMU'
         env['MOLA_DESKEW_METHOD'] = 'MotionCompensationMethod::IMU'
         env['MOLA_IMU_TOPIC'] = '/livox/imu'
-        env['MOLA_LIDAR_TOPIC'] = '/livox/lidar'
+        env['MOLA_LIDAR_TOPIC'] = '/points_raw_decoded'
         env['MOLA_TF_BASE_LINK'] = 'livox_frame'
         
         cmd1 = ["mola-lo-gui-rosbag2", rosbag_path]

@@ -42,6 +42,7 @@ import json
 import yaml
 from pathlib import Path
 from datetime import datetime
+from collections import defaultdict
 
 
 # ---------------------------------------------------------------------------
@@ -111,11 +112,17 @@ class IBVSActionServer(Node):
         'people'            : 'person',
         'gauge'             : 'gauge',
         'pressure_gauge'    : 'gauge',
-        'main_cylinder'     : 'main_cylinder',   # not trained, kept for future
-        'unknown'           : '',                 # '' = detect all
+        'main_cylinder'     : 'main_cylinder',
+        'unknown'           : 'unknown',
         'any'               : '',
         ''                  : '',
     }
+
+    # BT-targeted classes that should run full COARSE + IBVS + ROI flow
+    IBVS_TARGET_CLASSES = {'fire_extinguisher', 'door', 'gauge', 'person'}
+
+    # BT-targeted classes that should capture Insta360 overview only
+    INSTA_ONLY_TARGET_CLASSES = {'unknown', 'main_cylinder'}
 
     # YOLO confidence
     CONF_INSTA  = 0.5   # coarse detection
@@ -695,7 +702,8 @@ class IBVSActionServer(Node):
 
     # ---- MQTT (ThingsBoard token auth) + local cleanup ----------------------
 
-    def _mqtt(self, image_paths, obj_id, session_ts='', cls_name='object'):
+    def _mqtt(self, image_paths, obj_id, session_ts='', cls_name='object',
+              object_confidence=None, track_id=None, class_instance_id=None):
         """Upload images via MQTT. Keeps local files if KEEP_LOCAL=True.
         Uses ThingsBoard-style auth: username=access_token, password=empty."""
         if not image_paths:
@@ -731,6 +739,9 @@ class IBVSActionServer(Node):
                     'session':      session_ts,
                     'object_id':    obj_id,
                     'class_name':   cls_name,
+                    'class_instance_id': class_instance_id if class_instance_id is not None else obj_id,
+                    'track_id':     int(track_id) if track_id is not None else -1,
+                    'confidence':   float(object_confidence) if object_confidence is not None else None,
                     'image_idx':    i + 1,
                     'total':        len(image_paths),
                     'timestamp':    time.time(),
@@ -799,6 +810,28 @@ class IBVSActionServer(Node):
         p.z = float((ex**2 + ey**2) ** 0.5)  # total error magnitude
         self.ibvs_err_pub.publish(p)
 
+    def _write_capture_metadata(self, session_ts, cls_name, class_instance_id,
+                                confidence, track_id, mode):
+        """Persist per-object metadata next to captures for downstream use."""
+        base = Path(os.path.expanduser(
+            self._mqtt_cfg.get('capture_dir', '~/Documents/Visual_Inspection_ws/captures')
+        ))
+        meta_dir = base / 'inspection' / session_ts / cls_name / f'instance_{class_instance_id}'
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        meta_path = meta_dir / 'metadata.json'
+        payload = {
+            'session': session_ts,
+            'class_name': cls_name,
+            'class_instance_id': int(class_instance_id),
+            'confidence': float(confidence),
+            'track_id': int(track_id) if track_id is not None else -1,
+            'mode': mode,
+            'timestamp': time.time(),
+        }
+        with open(meta_path, 'w') as f:
+            json.dump(payload, f, indent=2)
+        return meta_path
+
 
     # ---- Main execute --------------------------------------------------------
 
@@ -815,14 +848,23 @@ class IBVSActionServer(Node):
         overview_count = goal_handle.request.overview_count or 2
         target_obj_raw = getattr(goal_handle.request, 'target_object', '') or ''
 
-        # Normalise target_object → YOLO class name
-        self._target_class = self.KNOWN_CLASSES.get(
-            target_obj_raw.lower().strip(), target_obj_raw.lower().strip())
-        if self._target_class:
+        target_key = target_obj_raw.lower().strip()
+        canonical_target = self.KNOWN_CLASSES.get(target_key, target_key)
+        target_insta_only = canonical_target in self.INSTA_ONLY_TARGET_CLASSES
+
+        if target_insta_only:
+            # unknown = no class filter, main_cylinder = filter if model supports it
+            self._target_class = '' if canonical_target == 'unknown' else canonical_target
             self.get_logger().info(
-                f'  Target object filter: "{target_obj_raw}" → YOLO class "{self._target_class}"')
+                f'  Target mode: Insta360-only for "{target_obj_raw or canonical_target}"')
+        elif canonical_target in self.IBVS_TARGET_CLASSES:
+            self._target_class = canonical_target
+            self.get_logger().info(
+                f'  Target mode: full IBVS for class "{self._target_class}"')
         else:
-            self.get_logger().info('  No target object filter — detecting all classes')
+            self._target_class = ''
+            self.get_logger().info(
+                '  No/unsupported target filter — detecting all classes in full mode')
 
         def abort(reason, in_back=False, found=0):
             self._pub_status('IDLE')
@@ -860,6 +902,37 @@ class IBVSActionServer(Node):
             goal_handle.succeed()
             return result
 
+        # ── TARGETED INSTA-ONLY MODE (unknown/main_cylinder from BT) ──
+        if target_insta_only:
+            self._pub_status('OVERVIEW')
+            feedback.current_step = 'overview'
+            goal_handle.publish_feedback(feedback)
+
+            # Optional one-shot detection for telemetry only
+            front_dets, back_dets, _, _ = self._detect_insta()
+            self._pub_detections(front_dets or [], back_dets or [])
+            total_found = len(front_dets or []) + len(back_dets or [])
+
+            cap_count = overview_count if overview_count > 0 else 2
+            lbl = location_label if location_label else (target_obj_raw or 'unknown')
+            paths = self._capture_insta_overview(
+                session_ts, lbl, count=cap_count, folder='overview')
+            self._mqtt(paths, obj_id=0, session_ts=session_ts,
+                       cls_name=target_obj_raw or canonical_target or 'unknown')
+
+            self._pub_status('IDLE')
+            self._goal_active = False
+            if ret_home:
+                self._home()
+
+            result.success           = len(paths) > 0
+            result.objects_inspected = 0
+            result.objects_found     = total_found
+            result.object_in_back    = len(back_dets or []) > 0
+            result.failed_reason     = '' if paths else 'no_frames'
+            goal_handle.succeed()
+            return result
+
         # ── FULL INSPECTION MODE ──────────────────────────────────────────────
         front_dets, back_dets = self._search_insta(goal_handle)
 
@@ -885,14 +958,18 @@ class IBVSActionServer(Node):
                 f'  {len(back_dets)} back object(s) noted -- will signal BT after front done')
 
         n_inspected = 0
+        class_instance_counts = defaultdict(int)
         for obj_idx, det in enumerate(front_dets, start=1):
             if goal_handle.is_cancel_requested:
                 break
 
             cx_obj, cy_obj, *_, conf, tid, cls_name = det
+            class_instance_counts[cls_name] += 1
+            class_instance_id = class_instance_counts[cls_name]
             self.get_logger().info(
                 f'Object {obj_idx}/{len(front_dets)}: [{cls_name}] cx={cx_obj:.0f} '
-                f'cy={cy_obj:.0f} conf={conf:.2f} track_id={tid}')
+                f'cy={cy_obj:.0f} conf={conf:.2f} track_id={tid} '
+                f'class_instance={class_instance_id}')
 
             # ---- Coarse positioning ----
             self._pub_status('COARSE')
@@ -947,20 +1024,39 @@ class IBVSActionServer(Node):
             time.sleep(self.FOCUS_WAIT)
 
             # Capture 4 Logitech ROI images
-            paths = self._capture(self.IMAGES_PER_OBJ, obj_id=obj_idx,
+            paths = self._capture(self.IMAGES_PER_OBJ, obj_id=class_instance_id,
                                   session_ts=session_ts, cls_name=cls_name)
 
             # Also capture Insta360 overview with YOLO boxes
             overview_paths = self._capture_insta_overview(
                 session_ts, location_label, count=1,
-                folder='inspection', obj_cls=cls_name, obj_id=obj_idx)
+                folder='inspection', obj_cls=cls_name, obj_id=class_instance_id)
 
             all_paths = paths + overview_paths
+            meta_path = self._write_capture_metadata(
+                session_ts=session_ts,
+                cls_name=cls_name,
+                class_instance_id=class_instance_id,
+                confidence=conf,
+                track_id=tid,
+                mode='full_ibvs',
+            )
             self.get_logger().info(
                 f'  Captured {len(paths)} ROI + {len(overview_paths)} overview = {len(all_paths)} total')
-            self._mqtt(all_paths, obj_idx, session_ts=session_ts, cls_name=cls_name)
+            self.get_logger().info(f'  Metadata saved: {meta_path}')
+            self._mqtt(
+                all_paths,
+                class_instance_id,
+                session_ts=session_ts,
+                cls_name=cls_name,
+                object_confidence=conf,
+                track_id=tid,
+                class_instance_id=class_instance_id,
+            )
             n_inspected += 1
-            self.get_logger().info(f'  Object {obj_idx} done ({n_inspected} total)')
+            self.get_logger().info(
+                f'  Object {obj_idx} done ({n_inspected} total), '
+                f'[{cls_name}] instance_{class_instance_id} conf={conf:.2f}')
 
         # ---- Done ----
         self._pub_status('IDLE')

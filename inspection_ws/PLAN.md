@@ -4,6 +4,13 @@
 **Existing:** Working ibvs_pipeline.py on Jetson (DO NOT break this)  
 **Goal:** Wrap existing pipeline into ROS2 nodes → connect to main BT
 
+## Update Note (Target-Driven Modes)
+
+- BT now sends `target_object` per location.
+- Full IBVS path is used only for: `fire_extinguisher`, `door`, `gauge`, `person`.
+- `unknown` and `main_cylinder` now use Insta360-only capture mode (skip Logitech and IBVS).
+- Captures now store per-object metadata (`metadata.json`) with class-instance index, confidence score, and track_id.
+
 ---
 
 ## 📁 Current Jetson Workspace (flat, working)
@@ -101,10 +108,13 @@ Type:   visual_inspection_ros/action/InspectObjects
 Goal:
   int32 max_objects        # 0 = inspect all detected, N = inspect only N
   bool  return_home        # true = servo returns 90,90 after done
+  string target_object     # BT target class per location
 
 Result:
   bool   success
   int32  objects_inspected
+  int32  objects_found
+  bool   object_in_back
   string failed_reason     # "no_detection" / "ibvs_timeout" / "mqtt_error" / ""
 
 Feedback:

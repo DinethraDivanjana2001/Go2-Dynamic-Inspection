@@ -1,6 +1,7 @@
 # Visual Inspection System — ROS2 Package
-**Stack:** ROS2 Humble · Python 3.10 · YOLO11 TensorRT · ByteTrack · paho-mqtt · py_trees  
+**Stack:** ROS2 Humble · Python 3.10 · YOLOv26s TensorRT · ByteTrack · paho-mqtt · py_trees
 **Hardware:** Jetson Orin Nano · Insta360 camera · Logitech camera · Arduino (pan-tilt servos)
+*Updated: 2026-04-20 — Migrated from ROS2 Action → ROS2 Service*
 
 ---
 
@@ -30,26 +31,25 @@ ros2 run visual_inspection_ros servo_node
 ```
 ✅ Ready when you see: `Servo node ready`
 
-### Terminal 3 — IBVS Action Server (main pipeline)
+### Terminal 3 — Inspection Service (main pipeline)
 ```bash
 source /opt/ros/humble/setup.bash
 source ~/Documents/Visual_Inspection_ws/inspection_ws/install/setup.bash
-ros2 run visual_inspection_ros ibvs_action_server
+ros2 run visual_inspection_ros inspection_service
 ```
 ✅ Ready when you see:
 ```
-Action server ready at /visual_inspection/inspect_objects
-MQTT broker: demo.thingsboard.io:1883
+Inspection service ready: /visual_inspection/inspect
 ```
 
-### Terminal 4 — Test (replaces Behaviour Tree until BT is connected)
+### Terminal 4 — Test (simulates Behaviour Tree)
 ```bash
 source /opt/ros/humble/setup.bash
 source ~/Documents/Visual_Inspection_ws/inspection_ws/install/setup.bash
-python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_full_pipeline.py
+python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object fire_extinguisher
 ```
 
-### Terminal 5 — RViz2 (live debug view)
+### Terminal 5 — RViz2 (optional debug view)
 ```bash
 source /opt/ros/humble/setup.bash
 rviz2
@@ -65,9 +65,11 @@ inspection_ws/
 ├── README.md                            ← this file
 ├── PLAN.md                              ← original development plan
 │
-├── visual_inspection_interfaces/        ← ROS2 custom message/action package
-│   └── action/
-│       └── InspectObjects.action        ← action definition (see below)
+├── visual_inspection_interfaces/        ← ROS2 custom message/service/action package
+│   ├── action/
+│   │   └── InspectObjects.action        ← legacy action (kept)
+│   └── srv/
+│       └── Inspect.srv                  ← ✅ ACTIVE service definition
 │
 └── visual_inspection_ros/               ← ROS2 node package
     ├── package.xml
@@ -75,61 +77,70 @@ inspection_ws/
     └── visual_inspection_ros/
         ├── camera_node.py               ← Node 1: publish both cameras
         ├── servo_node.py                ← Node 2: Arduino servo control
-        ├── ibvs_action_server.py        ← Node 3: full inspection pipeline
+        ├── ibvs_action_server.py        ← Node 3: legacy action server (base class)
+        ├── inspection_service.py        ← Node 4: ✅ ACTIVE service server
         └── bt_nodes/
-            ├── __init__.py
-            └── inspection_bt_nodes.py  ← BT leaf nodes (for Ravith)
+            └── inspection_bt_nodes.py  ← BT leaf nodes
 ```
 
 ---
 
-## Action Interface — InspectObjects.action
+## Service Interface — Inspect.srv
 
 ```
-# ── GOAL (what you send to start inspection) ─────────────────────────────────
-int32  max_objects       # 0 = inspect all detected front objects, N = first N only
-bool   return_home       # true = servos return to 90,90 after done
-string location_label    # label from BT e.g. "gauge_room_A" / "unknown"
-bool   overview_only     # true = just capture Insta360 snapshots (no IBVS)
-int32  overview_count    # how many Insta360 images (used when overview_only=true)
+# ── REQUEST ───────────────────────────────────────────────────────────────
+string  target_object    # "fire_extinguisher" | "door" | "person" | "gauge"
+                         # "unknown" | "main_cylinder"  → overview-only
+                         # "" or "any"                  → detect all classes
+string  location_label   # Location from BT e.g. "engine_room_A"
+int32   max_objects      # 0 = inspect all, N = first N
+bool    return_home      # true = servo returns to 90°,90° when done
 
-# ── RESULT (what you get back) ────────────────────────────────────────────────
-bool   success
-int32  objects_inspected  # how many objects were fully centered + captured
-int32  objects_found      # total detected on Insta360 (front + back)
-bool   object_in_back     # true → BT must rotate robot 180° and retry
-string failed_reason      # "": success | "no_detection" | "ibvs_timeout" |
-                          # "logi_no_detection" | "all_in_back"
-
-# ── FEEDBACK (streamed while running) ────────────────────────────────────────
-string  current_step      # "detecting" / "coarse" / "ibvs" / "capturing" / "overview"
-int32   current_object    # which object is being processed
-float32 ibvs_error_px     # live pixel error during IBVS centering
+# ── RESPONSE ──────────────────────────────────────────────────────────────
+bool    success               # true if ≥1 object inspected
+string  status                # "ok" | "no_detection" | "ibvs_timeout" |
+                              # "all_in_back" | "no_frames" | "busy"
+int32   objects_found         # total detected on Insta360
+int32   objects_inspected     # successfully centred + captured
+bool    object_in_back        # true → BT must rotate robot 180° and retry
+string[] image_paths          # absolute paths to all saved images
+string  info                  # human-readable summary
 ```
+
+### YOLO Model Classes (yolov26s.engine)
+
+| ID | YOLO Name | BT `target_object` | Confidence |
+|---|---|---|---|
+| 0 | `door` | `"door"` | 0.5 |
+| 1 | `extinguisher` | `"fire_extinguisher"`, `"extinguisher"` | 0.5 |
+| 2 | `gauge` | `"gauge"`, `"pressure_gauge"` | **0.3** |
+| 3 | `person` | `"person"`, `"people"` | 0.5 |
+
+*`unknown` and `main_cylinder` → overview-only (not YOLO classes)*
 
 ---
 
 ## All ROS2 Topics
 
-### Published by us
+### Published
 | Topic | Type | Description |
 |-------|------|-------------|
 | `/visual_inspection/insta360/image_raw` | `sensor_msgs/Image` | Insta360 raw feed (360°) |
 | `/visual_inspection/logitech/image_raw` | `sensor_msgs/Image` | Logitech raw feed (close-up) |
-| `/visual_inspection/debug` | `sensor_msgs/Image` | **Combined debug view** — side-by-side Insta360 + Logitech with bounding boxes, class names, IBVS arrow, mode, FPS |
-| `/visual_inspection/status` | `std_msgs/String` | Current mode: `IDLE` / `DETECTING` / `COARSE` / `IBVS` / `CAPTURING` / `OVERVIEW` |
-| `/visual_inspection/ibvs_error` | `geometry_msgs/Point` | IBVS pixel error: x=ex, y=ey, z=total magnitude |
-| `/visual_inspection/detections` | `std_msgs/String` | JSON list of detected objects with class, confidence, track_id, front/back zone |
+| `/visual_inspection/debug` | `sensor_msgs/Image` | Combined debug view (optional) |
+| `/visual_inspection/status` | `std_msgs/String` | `IDLE`/`DETECTING`/`COARSE`/`IBVS`/`CAPTURING`/`OVERVIEW`/`SWEEP` |
+| `/visual_inspection/ibvs_error` | `geometry_msgs/Point` | IBVS pixel error |
+| `/visual_inspection/detections` | `std_msgs/String` | JSON detected objects |
 
-### Subscribed by us
+### Subscribed
 | Topic | Type | Description |
 |-------|------|-------------|
-| `/servo/pan_tilt` | `std_msgs/Int16MultiArray` | `[tilt, pan]` servo command (0-180°) |
+| `/servo/pan_tilt` | `std_msgs/Int16MultiArray` | `[tilt, pan]` servo command |
 
-### Actions
-| Action | Type | Description |
+### Services (active)
+| Service | Type | Description |
 |--------|------|-------------|
-| `/visual_inspection/inspect_objects` | `InspectObjects` | Full pipeline: detect → coarse → IBVS → capture → MQTT |
+| `/visual_inspection/inspect` | `Inspect.srv` | ✅ Full pipeline — request/response |
 
 ---
 
@@ -239,29 +250,38 @@ ls -lR ~/Documents/Visual_Inspection_ws/captures/
 
 ## Test Commands (Without Behaviour Tree)
 
-### Full inspection (most common test)
 ```bash
-python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_full_pipeline.py
+source /opt/ros/humble/setup.bash
+source ~/Documents/Visual_Inspection_ws/inspection_ws/install/setup.bash
+
+# 1. Fire extinguisher
+python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object fire_extinguisher
+
+# 2. Door
+python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object door
+
+# 3. Person
+python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object person
+
+# 4. Gauge (with sweep fallback)
+python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object gauge
+
+# 5. Unknown (overview only)
+python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object unknown
+
+# 6. Main cylinder (overview only)
+python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object main_cylinder
+
+# 7. All classes
+python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py
 ```
 
-### Single manual goal (terminal)
+### Check service manually (ros2 CLI)
 ```bash
-ros2 action send_goal /visual_inspection/inspect_objects \
-  visual_inspection_interfaces/action/InspectObjects \
-  "{max_objects: 0, return_home: true, location_label: 'unknown', overview_only: false, overview_count: 2}"
-```
-
-### Overview-only mode (BT requests 360 snapshot for VLM)
-```bash
-ros2 action send_goal /visual_inspection/inspect_objects \
-  visual_inspection_interfaces/action/InspectObjects \
-  "{max_objects: 0, return_home: false, location_label: 'gauge_room_A', overview_only: true, overview_count: 2}"
-```
-
-### Run the BT tree directly
-```bash
-pip install py_trees   # first time only
-ros2 run visual_inspection_ros run_inspection_bt
+ros2 service list
+ros2 service call /visual_inspection/inspect \
+  visual_inspection_interfaces/srv/Inspect \
+  "{target_object: 'gauge', location_label: 'test', max_objects: 0, return_home: true}"
 ```
 
 ---
@@ -398,37 +418,39 @@ Login → Devices → "inspection" → Latest Telemetry
 
 ---
 
-## Configuration — Key Constants (ibvs_action_server.py)
+## Configuration — Key Constants (inspection_service.py / ibvs_action_server.py)
 
 | Constant | Default | Description |
 |----------|---------|-------------|
-| `INSTA_SEARCH_TIMEOUT` | 20s | Max wait for object detection on Insta360 |
-| `IBVS_TOTAL_TIMEOUT` | 40s | Max time for IBVS centering per object |
-| `IBVS_TOL_PX` | 10px | Error threshold to consider "centered" |
-| `FOCUS_WAIT` | 10s | Autofocus wait after IBVS before capture |
-| `IMAGES_PER_OBJ` | 4 | Logitech ROI images per object |
-| `FRONT_Y_MAX` | 200px | Insta360 y-threshold: above=BACK, below=FRONT |
-| `TILT_REVERSED` | True | Flip tilt direction (hardware-specific) |
-| `KEEP_LOCAL` | True | Always keep images locally (dataset mode) |
-| `CONF_INSTA` | 0.5 | YOLO confidence for Insta360 detection |
-| `CONF_IBVS` | 0.3 | YOLO confidence for Logitech IBVS |
+| `INSTA_SEARCH_TIMEOUT` | 20s | Max wait for object on Insta360 |
+| `GAUGE_INSTA_TIMEOUT` | 8s | Gauge-specific shorter timeout before sweep |
+| `IBVS_TOTAL_TIMEOUT` | 40s | Max IBVS centering time |
+| `IBVS_TOL_PX` | 10px | Centred threshold |
+| `FOCUS_WAIT` | 10s | Autofocus wait before capture |
+| `IMAGES_PER_OBJ` | 3 | Logitech ROI images per object |
+| `FRONT_Y_MAX` | 200px | Insta360 front/back split line |
+| `TILT_REVERSED` | True | Flip tilt (hardware-specific) |
+| `KEEP_LOCAL` | True | Always keep images locally |
+| `CLASS_CONF['gauge']` | 0.3 | Lower threshold for gauge |
+| `CLASS_CONF['*']` | 0.5 | Threshold for all other classes |
+| `SWEEP_TILTS` | [20,50,80] | Gauge sweep tilt positions |
+| `SWEEP_PAN_RANGE` | (20,160) | Gauge sweep pan range |
 
 ---
 
 ## Rebuild After Code Changes
 
 ```bash
-# Only needed when InspectObjects.action file is changed:
+# Full rebuild (after changing .srv or .action files):
 cd ~/Documents/Visual_Inspection_ws/inspection_ws
-rm -rf build/visual_inspection_interfaces install/visual_inspection_interfaces
 source /opt/ros/humble/setup.bash
 colcon build --packages-select visual_inspection_interfaces visual_inspection_ros
 source install/setup.bash
 
-# For Python file changes only (ibvs_action_server.py etc.) — NO rebuild needed:
-# Just SCP the file from laptop and restart the node
-pkill -f ibvs_action_server && sleep 1
-ros2 run visual_inspection_ros ibvs_action_server
+# Python-only changes (inspection_service.py, ibvs_action_server.py):
+# Just SCP the file and restart — no rebuild needed
+pkill -f inspection_service && sleep 1
+ros2 run visual_inspection_ros inspection_service
 ```
 
 ---
@@ -437,26 +459,24 @@ ros2 run visual_inspection_ros ibvs_action_server
 
 | Problem | Fix |
 |---------|-----|
-| `ImportError: cannot import name 'InspectObjects'` | Run `colcon build` and `source install/setup.bash` |
-| `ValueError: too many values to unpack` | SCP latest ibvs_action_server.py |
-| `ModuleNotFoundError: No module named 'em'` | Don't activate `.venv` before `colcon build` on laptop |
-| No camera feed | Check `/dev/insta360` and `/dev/logitech` exist: `ls /dev/insta360` |
-| Servo not moving | Check Arduino connected: `ls /dev/ttyUSB*` |
-| IBVS not converging (timeout 40s) | Move object closer, check Logitech camera focused |
-| MQTT no telemetry on ThingsBoard | Check `mqtt_config.yaml` access token; check MQTT broker reachable |
-| `failed_reason: ""` with status=6 | Crash in execute_callback — check Terminal 3 for traceback |
-| Images blurry | Increase `FOCUS_WAIT` (currently 10s) in ibvs_action_server.py |
+| `cannot import name 'Inspect'` | Run `colcon build` and `source install/setup.bash` |
+| `Service not available` | Check `inspection_service` node is running |
+| `No module named 'torch'` | Run `ln -sf ~/Documents/Visual_Inspection_ws/venv/lib/python3.10/site-packages/torch ~/.local/lib/python3.10/site-packages/torch` |
+| No camera feed | Check `/dev/insta360` and `/dev/logitech` exist |
+| Servo not moving | Check Arduino: `ls /dev/ttyUSB*` |
+| IBVS timeout | Move object closer, check Logitech focus |
+| Gauge never found | Sweep scan runs automatically — check logs for `SWEEP` |
+| Images blurry | Increase `FOCUS_WAIT` (currently 10s) |
 
 ---
 
 ## YOLO Model
 
-- **Path:** `~/Documents/Visual_Inspection_ws/weights/yolo11n.engine`
-- **Format:** TensorRT FP16 (accelerated on Jetson GPU) ← loads first
-- **Fallback:** `.pt` PyTorch file if `.engine` not found
-- **Classes detected:** door, gauge, fire_extinguisher (trained classes)
-- **Tracking:** ByteTrack (`model.track(persist=True, tracker='bytetrack.yaml')`)
+- **Path:** `~/Documents/Visual_Inspection_ws/weights/yolov26s.engine`
+- **Format:** TensorRT FP16 (Jetson GPU)
+- **Classes:** `door`(0), `extinguisher`(1), `gauge`(2), `person`(3)
+- **Tracking:** ByteTrack
 
 ---
 
-*Last updated: 2026-03-09*
+*Last updated: 2026-04-20*

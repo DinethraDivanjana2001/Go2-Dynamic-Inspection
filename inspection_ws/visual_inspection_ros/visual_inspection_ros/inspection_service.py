@@ -356,101 +356,101 @@ class InspectionService(IBVSActionServer):
         self.get_logger().warn('[SVC] Insta360 search timeout')
         return [], []
 
-    def _sweep_move(self, from_tilt, from_pan, to_tilt, to_pan,
-                    check_fn, check_cancel_fn):
-        """
-        Smoothly interpolate servo from (from_tilt,from_pan) to (to_tilt,to_pan).
-        Moves at SWEEP_DEG_PER_S deg/s, updates at SWEEP_INTERP_HZ Hz.
-        Checks for detections at SWEEP_CHECK_HZ Hz during motion.
-        Returns det list if something found, [] if reached target with nothing, None if cancelled.
-        """
-        total_deg = max(abs(to_pan - from_pan), abs(to_tilt - from_tilt), 1)
-        duration  = total_deg / self.SWEEP_DEG_PER_S
-        n_steps   = max(int(duration * self.SWEEP_INTERP_HZ), 1)
-        check_every = max(1, self.SWEEP_INTERP_HZ // self.SWEEP_CHECK_HZ)
-
-        for i in range(n_steps + 1):
-            if check_cancel_fn():
-                return None
-            t = i / n_steps
-            pan  = from_pan  + t * (to_pan  - from_pan)
-            tilt = from_tilt + t * (to_tilt - from_tilt)
-            self._servo(tilt, pan)
-
-            if i % check_every == 0:
-                dets, _, logi_dbg = self._detect_logi()
-                insta_f = self._get_insta()
-                self._publish_debug(insta_f, logi_dbg)
-                if dets:
-                    return dets
-
-            time.sleep(1.0 / self.SWEEP_INTERP_HZ)
-
-        return []
-
     def _gauge_sweep_svc(self, session_ts):
-        """Gauge sweep scan (service context). Smooth serpentine.
-        tilt=[40,70,100], pan=[20↔160]. Returns image paths or []."""
+        """Smooth serpentine sweep for gauge using np.linspace.
+        tilt=[40,70,100], pan=[20↔160] — no separate helper needed."""
+        import numpy as np
         self._mode = 'SWEEP'
-        self.get_logger().info('[SVC] Gauge sweep (smooth): tilt=[40,70,100] pan=[20↔160]')
+        self.get_logger().info('[SVC] Gauge sweep: tilt=[40,70,100] pan smooth 20↔160')
 
-        def cancel(): return False   # service context — no cancellation
+        TILTS    = [40, 70, 100]
+        PAN_MIN, PAN_MAX = 20, 160
+        SPEED    = 40.0   # degrees per second
+        HZ       = 30     # servo update rate
+        CHK      = 3      # check detection every N steps
 
-        cur_tilt, cur_pan = 40, 20
-        # Move to start from home
-        self._sweep_move(90, 90, cur_tilt, cur_pan, lambda: [], cancel)
-        time.sleep(0.3)
+        found_dets = []
+        cur_tilt   = 90
+        cur_pan    = 90
 
-        for sweep_idx, tilt in enumerate(self.SWEEP_TILTS):
-            pan_end = self.SWEEP_PAN_RANGE[1] if sweep_idx % 2 == 0 \
-                      else self.SWEEP_PAN_RANGE[0]
+        def smooth_move(t0, p0, t1, p1):
+            """Move servo smoothly from (t0,p0) to (t1,p1). Returns dets if found."""
+            steps = max(int(max(abs(t1-t0), abs(p1-p0)) / SPEED * HZ), 1)
+            for i, (t, p) in enumerate(zip(
+                np.linspace(t0, t1, steps+1),
+                np.linspace(p0, p1, steps+1)
+            )):
+                self._servo(float(t), float(p))
+                if i % CHK == 0:
+                    dets, _, dbg = self._detect_logi()
+                    self._publish_debug(self._get_insta(), dbg)
+                    if dets:
+                        return dets
+                time.sleep(1.0 / HZ)
+            return []
 
-            # Move to tilt row
-            self._sweep_move(cur_tilt, cur_pan, tilt, cur_pan, lambda: [], cancel)
+        # Move to start
+        smooth_move(cur_tilt, cur_pan, TILTS[0], PAN_MIN)
+        cur_tilt, cur_pan = TILTS[0], PAN_MIN
+
+        for idx, tilt in enumerate(TILTS):
+            pan_end = PAN_MAX if idx % 2 == 0 else PAN_MIN
+
+            # Tilt row move
+            res = smooth_move(cur_tilt, cur_pan, tilt, cur_pan)
             cur_tilt = tilt
+            if res:
+                found_dets = res
+                break
 
-            # Pan sweep across row — detect during motion
-            res = self._sweep_move(cur_tilt, cur_pan, cur_tilt, pan_end,
-                                   lambda: [], cancel)
-            dets, _, dbg = self._detect_logi()
-            insta_f = self._get_insta()
-            self._publish_debug(insta_f, dbg)
-
-            if res or dets:
-                found_dets = res if res else dets
-                self.get_logger().info(
-                    f'[SVC] Sweep: gauge found tilt={tilt}')
-                self._pub_status('IBVS')
-
-                class _DH:
-                    is_cancel_requested = False
-                    def publish_feedback(self, _): pass
-
-                class _FB:
-                    current_step = 'ibvs'
-                    current_object = 1
-                    ibvs_error_px = 0.0
-
-                centred = self._ibvs(_DH(), cur_pan, cur_tilt, _FB(), 1)
-                if centred:
-                    self._pub_status('CAPTURING')
-                    time.sleep(self.FOCUS_WAIT)
-                    conf = found_dets[0][6] if found_dets else 0.3
-                    paths = self._capture(
-                        self.IMAGES_PER_OBJ, obj_id=1,
-                        session_ts=session_ts, cls_name='gauge',
-                        conf_score=conf)
-                    ov = self._capture_insta_overview(
-                        session_ts, 'sweep_gauge', count=1,
-                        folder='inspection', obj_cls='gauge', obj_id=1)
-                    all_p = paths + ov
-                    self._mqtt(all_p, 1, session_ts=session_ts, cls_name='gauge')
-                    return all_p
-
+            # Pan sweep
+            res = smooth_move(cur_tilt, cur_pan, cur_tilt, pan_end)
             cur_pan = pan_end
+            if res:
+                found_dets = res
+                break
 
-        self.get_logger().warn('[SVC] Gauge sweep: not found')
-        return []
+            # Final check at end of row
+            dets, _, dbg = self._detect_logi()
+            self._publish_debug(self._get_insta(), dbg)
+            if dets:
+                found_dets = dets
+                break
+
+        if not found_dets:
+            self.get_logger().warn('[SVC] Gauge sweep: not found')
+            return []
+
+        self.get_logger().info(f'[SVC] Gauge found in sweep — starting IBVS')
+        self._pub_status('IBVS')
+
+        class _DH:
+            is_cancel_requested = False
+            def publish_feedback(self, _): pass
+
+        class _FB:
+            current_step = 'ibvs'
+            current_object = 1
+            ibvs_error_px = 0.0
+
+        centred = self._ibvs(_DH(), cur_pan, cur_tilt, _FB(), 1)
+        if not centred:
+            self.get_logger().warn('[SVC] Sweep IBVS did not converge')
+            return []
+
+        self._pub_status('CAPTURING')
+        time.sleep(self.FOCUS_WAIT)
+        conf  = found_dets[0][6]
+        paths = self._capture(self.IMAGES_PER_OBJ, obj_id=1,
+                              session_ts=session_ts, cls_name='gauge',
+                              conf_score=conf)
+        ov    = self._capture_insta_overview(session_ts, 'sweep_gauge',
+                                             count=1, folder='inspection',
+                                             obj_cls='gauge', obj_id=1)
+        all_p = paths + ov
+        self._mqtt(all_p, 1, session_ts=session_ts, cls_name='gauge')
+        return all_p
+
 
 
 # ---------------------------------------------------------------------------

@@ -533,7 +533,9 @@ class IBVSActionServer(Node):
             self._fps_time    = now
 
     def _debug_timer_cb(self):
-        """4Hz timer — publishes combined debug when no active goal."""
+        """4Hz timer — publishes combined debug when no active goal.
+        Applies per-class confidence thresholds so debug view only shows
+        valid detections (e.g. person must be >=0.5, gauge >=0.3)."""
         if self._goal_active:
             return
         if not self._yolo_lock.acquire(blocking=False):
@@ -541,104 +543,177 @@ class IBVSActionServer(Node):
         try:
             insta_f = self._get_insta()
             logi_f  = self._get_logi()
-            _, insta_dbg = self._detect_raw(insta_f, self.CONF_YOLO_MIN) if insta_f is not None else ([], None)
-            _, logi_dbg  = self._detect_raw(logi_f,  self.CONF_YOLO_MIN) if logi_f  is not None else ([], None)
+            # Run YOLO at lowest threshold, post-filter per-class
+            raw_insta, insta_dbg = self._detect_raw(insta_f, self.CONF_YOLO_MIN) \
+                if insta_f is not None else ([], None)
+            raw_logi,  logi_dbg  = self._detect_raw(logi_f,  self.CONF_YOLO_MIN) \
+                if logi_f  is not None else ([], None)
         finally:
             self._yolo_lock.release()
 
+        # Rebuild debug frames with per-class filtered boxes only
+        if insta_f is not None:
+            insta_dbg = self._draw_filtered(insta_f, raw_insta)
+        if logi_f is not None:
+            logi_dbg = self._draw_filtered(logi_f, raw_logi)
+
         self._publish_debug(insta_dbg, logi_dbg)
+
+    def _draw_filtered(self, frame, dets):
+        """Draw only detections that pass per-class confidence threshold."""
+        import cv2
+        dbg = frame.copy()
+        h, w = dbg.shape[:2]
+        cv2.line(dbg, (w//2, 0), (w//2, h), (80, 80, 200), 1)
+        cv2.line(dbg, (0, h//2), (w, h//2), (80, 80, 200), 1)
+        for d in dets:
+            cls  = d[7].lower()
+            conf = d[6]
+            min_conf = self.CLASS_CONF.get(cls, self.CONF_DEFAULT)
+            if conf < min_conf:
+                continue   # skip — below class threshold
+            x1, y1, x2, y2 = int(d[2]), int(d[3]), int(d[4]), int(d[5])
+            cx, cy = int(d[0]), int(d[1])
+            cv2.rectangle(dbg, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(dbg, f'{cls} {conf:.2f}', (x1, max(y1-5, 10)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            cv2.circle(dbg, (cx, cy), 5, (0, 0, 255), -1)
+        return dbg
 
     # ---- Gauge sweep scan (fallback when Insta360 misses gauge) --------------
 
-    # Sweep scan positions: serpentine pattern
-    # Tilt 20 → pan 20→160, Tilt 50 → pan 160→20, Tilt 80 → pan 20→160
-    SWEEP_TILTS = [20, 50, 80]
-    SWEEP_PAN_RANGE = (20, 160)
-    SWEEP_PAN_STEP = 10       # degrees per step
-    SWEEP_STEP_WAIT = 0.3     # seconds at each position
+    # Gauge sweep — smooth serpentine: tilt=[40,70,100], pan=[20↔160]
+    SWEEP_TILTS      = [40, 70, 100]   # tilt row positions (degrees)
+    SWEEP_PAN_RANGE  = (20, 160)       # pan extent
+    SWEEP_INTERP_HZ  = 30              # servo update rate during sweep
+    SWEEP_DEG_PER_S  = 40.0            # degrees per second (smooth speed)
+    SWEEP_CHECK_HZ   = 10              # detection checks per second during sweep
+
+    def _sweep_move(self, from_tilt, from_pan, to_tilt, to_pan,
+                    check_fn, check_cancel_fn):
+        """
+        Smoothly interpolate servo from (from_tilt,from_pan) to (to_tilt,to_pan)
+        at SWEEP_DEG_PER_S degrees/s. Calls check_fn() every 1/SWEEP_CHECK_HZ s.
+        Returns det list immediately if check_fn() finds something, else [].
+        """
+        total_deg = max(abs(to_pan - from_pan), abs(to_tilt - from_tilt), 1)
+        duration  = total_deg / self.SWEEP_DEG_PER_S          # seconds
+        n_steps   = max(int(duration * self.SWEEP_INTERP_HZ), 1)
+        check_every = max(1, self.SWEEP_INTERP_HZ // self.SWEEP_CHECK_HZ)
+
+        for i in range(n_steps + 1):
+            if check_cancel_fn():
+                return None   # cancelled
+            t = i / n_steps
+            pan  = from_pan  + t * (to_pan  - from_pan)
+            tilt = from_tilt + t * (to_tilt - from_tilt)
+            self._servo(tilt, pan)
+
+            # Check Logitech periodically during move
+            if i % check_every == 0:
+                dets, _, logi_dbg = self._detect_logi()
+                insta_f = self._get_insta()
+                self._publish_debug(insta_f, logi_dbg)
+                if dets:
+                    return dets
+
+            time.sleep(1.0 / self.SWEEP_INTERP_HZ)
+
+        return []   # reached target, nothing found
 
     def _gauge_sweep_scan(self, goal_handle, feedback, session_ts):
-        """Serpentine sweep: move pan-tilt through positions while checking
-        Logitech for gauge detection. If found → IBVS immediately.
-        Returns Result if gauge found & inspected, None if sweep found nothing."""
+        """
+        Smooth serpentine sweep for gauge:
+          tilt=40 → pan 20→160
+          tilt=70 → pan 160→20
+          tilt=100 → pan 20→160
+        Servo moves smoothly. Detection checked during motion.
+        Returns Result on success, None if gauge not found.
+        """
         self._mode = 'SWEEP'
-        self.get_logger().info('  Gauge sweep scan: tilt=[20,50,80] pan=[20→160]')
+        self.get_logger().info(
+            '  Gauge sweep scan (smooth): tilt=[40,70,100] pan=[20↔160]')
         feedback.current_step = 'detecting'
         goal_handle.publish_feedback(feedback)
 
+        def cancel(): return goal_handle.is_cancel_requested
+
+        cur_tilt = 40
+        cur_pan  = 20
+
+        # Move to start position smoothly from home
+        self._sweep_move(90, 90, cur_tilt, cur_pan, lambda: [], cancel)
+        time.sleep(0.3)
+
         for sweep_idx, tilt in enumerate(self.SWEEP_TILTS):
-            # Alternate pan direction for serpentine
-            if sweep_idx % 2 == 0:
-                pan_range = range(self.SWEEP_PAN_RANGE[0],
-                                  self.SWEEP_PAN_RANGE[1] + 1,
-                                  self.SWEEP_PAN_STEP)
-            else:
-                pan_range = range(self.SWEEP_PAN_RANGE[1],
-                                  self.SWEEP_PAN_RANGE[0] - 1,
-                                  -self.SWEEP_PAN_STEP)
+            # Serpentine direction
+            pan_end = self.SWEEP_PAN_RANGE[1] if sweep_idx % 2 == 0 \
+                      else self.SWEEP_PAN_RANGE[0]
 
-            for pan in pan_range:
-                if goal_handle.is_cancel_requested:
-                    return None
+            # 1. Move tilt to row position first (current pan → same pan, new tilt)
+            res = self._sweep_move(cur_tilt, cur_pan, tilt, cur_pan, lambda: [], cancel)
+            if res is None:
+                return None  # cancelled
+            cur_tilt = tilt
 
-                self._servo(tilt, pan)
-                time.sleep(self.SWEEP_STEP_WAIT)
+            # 2. Pan sweep across row
+            res = self._sweep_move(cur_tilt, cur_pan, cur_tilt, pan_end, lambda: [], cancel)
+            if res is None:
+                return None  # cancelled
 
-                # Check Logitech for gauge
-                dets, _, logi_dbg = self._detect_logi()
-                # Also update debug display
-                insta_f = self._get_insta()
-                self._publish_debug(insta_f, logi_dbg)
+            # Check if detection happened during sweep
+            dets, _, logi_dbg = self._detect_logi()
+            insta_f = self._get_insta()
+            self._publish_debug(insta_f, logi_dbg)
 
-                if dets:
+            if res or dets:
+                found_dets = res if res else dets
+                self.get_logger().info(
+                    f'  SWEEP: gauge found at approx tilt={tilt} '
+                    f'pan={cur_pan}→{pan_end}! Starting IBVS')
+                self._pub_status('IBVS')
+
+                # Use current servo position as IBVS start
+                centred = self._ibvs(goal_handle, cur_pan, cur_tilt,
+                                     feedback, 1)
+                if centred:
+                    self._pub_status('CAPTURING')
                     self.get_logger().info(
-                        f'  SWEEP: gauge found at pan={pan} tilt={tilt}! '
-                        f'Starting IBVS directly')
-                    self._pub_status('IBVS')
+                        f'  Waiting {self.FOCUS_WAIT}s for autofocus...')
+                    time.sleep(self.FOCUS_WAIT)
 
-                    # Run IBVS from current position
-                    centred = self._ibvs(goal_handle, pan, tilt, feedback, 1)
-                    if centred:
-                        # Capture
-                        self._pub_status('CAPTURING')
-                        self.get_logger().info(
-                            f'  Waiting {self.FOCUS_WAIT}s for autofocus...')
-                        time.sleep(self.FOCUS_WAIT)
+                    conf = found_dets[0][6] if found_dets else 0.3
+                    paths = self._capture(
+                        self.IMAGES_PER_OBJ, obj_id=1,
+                        session_ts=session_ts, cls_name='gauge',
+                        conf_score=conf)
+                    overview_paths = self._capture_insta_overview(
+                        session_ts, 'sweep_gauge', count=1,
+                        folder='inspection', obj_cls='gauge', obj_id=1)
 
-                        conf = dets[0][6]
-                        paths = self._capture(
-                            self.IMAGES_PER_OBJ, obj_id=1,
-                            session_ts=session_ts, cls_name='gauge',
-                            conf_score=conf)
-                        overview_paths = self._capture_insta_overview(
-                            session_ts, 'sweep_gauge', count=1,
-                            folder='inspection', obj_cls='gauge', obj_id=1)
+                    all_paths = paths + overview_paths
+                    self._mqtt(all_paths, 1, session_ts=session_ts,
+                               cls_name='gauge')
+                    self.get_logger().info(
+                        f'  Sweep gauge done: {len(all_paths)} images')
 
-                        all_paths = paths + overview_paths
-                        self._mqtt(all_paths, 1, session_ts=session_ts,
-                                   cls_name='gauge')
+                    result = InspectObjects.Result()
+                    result.success = True
+                    result.objects_inspected = 1
+                    result.objects_found = 1
+                    result.object_in_back = False
+                    result.failed_reason = ''
+                    self._pub_status('IDLE')
+                    self._goal_active = False
+                    self._home()
+                    goal_handle.succeed()
+                    return result
+                else:
+                    self.get_logger().warn('  Sweep IBVS did not converge — continuing')
 
-                        self.get_logger().info(
-                            f'  Sweep gauge inspection done: {len(all_paths)} images')
+            cur_pan = pan_end
 
-                        # Build result
-                        result = InspectObjects.Result()
-                        result.success = True
-                        result.objects_inspected = 1
-                        result.objects_found = 1
-                        result.object_in_back = False
-                        result.failed_reason = ''
-
-                        self._pub_status('IDLE')
-                        self._goal_active = False
-                        self._home()
-                        goal_handle.succeed()
-                        return result
-                    else:
-                        self.get_logger().warn('  Sweep IBVS did not converge')
-                        # Continue sweep
-
-        self.get_logger().warn('  Gauge sweep scan complete — no gauge found')
+        self.get_logger().warn('  Gauge sweep complete — gauge not found')
         return None
 
     # ---- Stage 1: search Insta360 -------------------------------------------

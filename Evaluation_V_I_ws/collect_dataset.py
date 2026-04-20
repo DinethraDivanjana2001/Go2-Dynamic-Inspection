@@ -15,10 +15,7 @@ BASE     = Path.home() / 'Documents/Visual_Inspection_ws'
 EVAL     = BASE / 'evaluation'
 CAPTURES = BASE / 'captures/inspection'
 LOG_CSV  = EVAL / 'capture_log.csv'
-SCRIPT   = BASE / 'test_scripts/test_full_pipeline.py'
-ROS_CMD  = (f'bash -c "source /opt/ros/humble/setup.bash && '
-            f'source {BASE}/inspection_ws/install/setup.bash && '
-            f'python3 {SCRIPT}"')
+SVC_TEST = BASE / 'test_scripts/test_inspection_service.py'
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 R='\033[1;31m'; G='\033[1;32m'; Y='\033[1;33m'
@@ -60,79 +57,69 @@ def count_in(subfolder):
     if not d.exists(): return 0
     return len(list(d.glob('*.jpg')))
 
-# ── Pipeline ─────────────────────────────────────────────────────────────────
-def run_and_parse():
-    """Run inspection, auto-parse IBVS stats, return (img_path, time, error, converged).
-    
-    FIX: proc.wait(timeout=5) was killing the process while it was still saving
-    images (IBVS + 4 captures with autofocus = 50+ seconds total).
-    Now we break on RESULT, sleep briefly, kill cleanly, then POLL for the image.
+# ── Service call ────────────────────────────────────────────────────────────────────
+
+def run_and_parse(target_object: str = '', location_label: str = 'eval'):
+    """
+    Call /visual_inspection/inspect via test_inspection_service.py.
+    Returns (img_path, ibvs_time, final_err, converged, objects_inspected, status).
+    Requires inspection_service running (T3).
     """
     before = set()
     if CAPTURES.exists():
         before = {f for f in CAPTURES.rglob('img_*.jpg')}
 
     ibvs_time, final_err, converged = 0.0, 0.0, False
-    proc = None
-    info('Running inspection pipeline...')
+    objects_inspected = 0
+    status = 'unknown'
+    info(f'Calling service: object="{target_object or "any"}"  loc="{location_label}"')
 
+    src = (f'source /opt/ros/humble/setup.bash && '
+           f'source {BASE}/inspection_ws/install/setup.bash')
+    obj_flag = f'--object "{target_object}"' if target_object else ''
+    loc_flag = f'--location "{location_label}"'
+    cmd = f'bash -c "{src} && python3 {SVC_TEST} {obj_flag} {loc_flag}"'
+
+    proc = None
     try:
-        proc = subprocess.Popen(ROS_CMD, shell=True,
+        proc = subprocess.Popen(cmd, shell=True,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True)
         for line in proc.stdout:
             l = line.strip()
             if l: print(f'     {l}')
-
-            # Parse IBVS converge: "IBVS converged: err=7.8px at iter 38"
             m = re.search(r'IBVS converged.*err=([\d.]+)px.*iter\s+(\d+)', l)
             if m:
                 final_err = float(m.group(1))
                 ibvs_time = round(int(m.group(2)) * 0.066, 1)
                 converged = True
-
-            # Parse timeout
             if re.search(r'IBVS timeout', l):
-                converged = False
-                ibvs_time = 40.0
-
-            # Pipeline finished — break and wait for image to be written
-            if 'success=True' in l or 'success=False' in l or 'RESULT' in l:
-                info('Pipeline finished — waiting for image to be written to disk...')
-                time.sleep(4)   # Give capture code time to finish writing files
-                break
-
+                converged = False; ibvs_time = 40.0
+            m2 = re.search(r'objects_inspected\s*:\s*(\d+)', l)
+            if m2: objects_inspected = int(m2.group(1))
+            m3 = re.search(r'status\s*:\s*(\S+)', l)
+            if m3: status = m3.group(1)
+        proc.wait(timeout=180)
     except Exception as e:
-        bad(f'Pipeline launch error: {e}')
+        bad(f'Service call error: {e}')
     finally:
-        # Always clean kill — never leave zombie subprocess
-        if proc is not None:
-            try:
-                proc.kill()
-                proc.wait(timeout=3)
-            except Exception:
-                pass
+        if proc:
+            try: proc.kill(); proc.wait(timeout=3)
+            except Exception: pass
 
-    # Poll captures/ for up to 60 seconds for a new image to appear
-    print(f'  {Y}Waiting for captured image', end='', flush=True)
-    deadline = time.time() + 60
-    img_path = None
-    while time.time() < deadline:
-        if CAPTURES.exists():
-            after = {f for f in CAPTURES.rglob('img_*.jpg')}
-            new = after - before
-            if new:
-                newest   = max(new, key=lambda f: f.stat().st_mtime)
-                img01    = newest.parent / 'img_01.jpg'
-                img_path = img01 if img01.exists() else newest
-                print(f'  ✓{X}')
-                break
-        time.sleep(1)
-        print('.', end='', flush=True)
+    time.sleep(2)
+    new_paths = []
+    if CAPTURES.exists():
+        after = {f for f in CAPTURES.rglob('img_*.jpg')}
+        new_paths = sorted(after - before, key=lambda f: f.stat().st_mtime)
+
+    img_path = new_paths[0] if new_paths else None
+    if new_paths:
+        ok(f'Found {len(new_paths)} new image(s)')
     else:
-        print(f'  timeout!{X}')
+        bad('No new images — check inspection_service is running (T3)')
+    return img_path, ibvs_time, final_err, converged, objects_inspected, status
 
-    return img_path, ibvs_time, final_err, converged
 
 def save_img(img_path, dest: Path, fname: str) -> bool:
     dest.mkdir(parents=True, exist_ok=True)
@@ -161,11 +148,13 @@ def one_capture(dest: Path, fname_prefix: str, subfolder_name: str,
 
     input(f'\n  {W}▶  Ready? Press ENTER to capture...{X}')
     print()
-    img, ibvs_t, err_px, conv = run_and_parse()
+    img, ibvs_t, err_px, conv, n_insp, svc_status = run_and_parse(
+        target_object=obj_type, location_label=subfolder_name)
     saved = save_img(img, dest, fname)
 
     if conv:  ok(f'IBVS:  converged in {ibvs_t}s  |  final error {err_px}px')
-    else:     bad(f'IBVS:  DID NOT CONVERGE (timeout at 40s)')
+    elif n_insp > 0: ok(f'Inspected {n_insp} object(s)  |  status={svc_status}')
+    else:     bad(f'IBVS:  DID NOT CONVERGE  (status={svc_status})')
 
     caption = ''
     if ask_caption:
@@ -183,14 +172,15 @@ def one_capture(dest: Path, fname_prefix: str, subfolder_name: str,
 
 def ask_obj():
     print(f'''
-  Objects:
-    1  fire_extinguisher
-    2  gauge
-    3  door
-    4  emergency_exit
-    5  main_cylinder''')
+  Objects (YOLO classes + overview-only):
+    1  fire_extinguisher   (conf ≥ 0.5, full IBVS)
+    2  gauge               (conf ≥ 0.3, IBVS + sweep)
+    3  door                (conf ≥ 0.5, full IBVS)
+    4  person              (conf ≥ 0.5, full IBVS)
+    5  unknown             (overview only — no IBVS)
+    6  main_cylinder       (overview only — no IBVS)''')
     m = {'1':'fire_extinguisher','2':'gauge','3':'door',
-         '4':'emergency_exit','5':'main_cylinder'}
+         '4':'person','5':'unknown','6':'main_cylinder'}
     return m.get(prompt('Select object','1'), 'fire_extinguisher')
 
 def session_reference():

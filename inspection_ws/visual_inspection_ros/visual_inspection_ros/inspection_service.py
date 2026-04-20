@@ -357,57 +357,65 @@ class InspectionService(IBVSActionServer):
         return [], []
 
     def _gauge_sweep_svc(self, session_ts):
-        """Gauge sweep scan (service context). Returns image paths or []."""
+        """Gauge sweep scan (service context). Smooth serpentine.
+        tilt=[40,70,100], pan=[20↔160]. Returns image paths or []."""
         self._mode = 'SWEEP'
-        self.get_logger().info('[SVC] Gauge sweep: tilt=[20,50,80] pan=[20-160]')
+        self.get_logger().info('[SVC] Gauge sweep (smooth): tilt=[40,70,100] pan=[20↔160]')
+
+        def cancel(): return False   # service context — no cancellation
+
+        cur_tilt, cur_pan = 40, 20
+        # Move to start from home
+        self._sweep_move(90, 90, cur_tilt, cur_pan, lambda: [], cancel)
+        time.sleep(0.3)
 
         for sweep_idx, tilt in enumerate(self.SWEEP_TILTS):
-            if sweep_idx % 2 == 0:
-                pan_range = range(self.SWEEP_PAN_RANGE[0],
-                                  self.SWEEP_PAN_RANGE[1] + 1,
-                                  self.SWEEP_PAN_STEP)
-            else:
-                pan_range = range(self.SWEEP_PAN_RANGE[1],
-                                  self.SWEEP_PAN_RANGE[0] - 1,
-                                  -self.SWEEP_PAN_STEP)
+            pan_end = self.SWEEP_PAN_RANGE[1] if sweep_idx % 2 == 0 \
+                      else self.SWEEP_PAN_RANGE[0]
 
-            for pan in pan_range:
-                self._servo(tilt, pan)
-                time.sleep(self.SWEEP_STEP_WAIT)
-                dets, _, dbg = self._detect_logi()
-                insta_f = self._get_insta()
-                self._publish_debug(insta_f, dbg)
+            # Move to tilt row
+            self._sweep_move(cur_tilt, cur_pan, tilt, cur_pan, lambda: [], cancel)
+            cur_tilt = tilt
 
-                if dets:
-                    self.get_logger().info(
-                        f'[SVC] Sweep: gauge at pan={pan} tilt={tilt}')
-                    self._pub_status('IBVS')
+            # Pan sweep across row — detect during motion
+            res = self._sweep_move(cur_tilt, cur_pan, cur_tilt, pan_end,
+                                   lambda: [], cancel)
+            dets, _, dbg = self._detect_logi()
+            insta_f = self._get_insta()
+            self._publish_debug(insta_f, dbg)
 
-                    class _DH:
-                        is_cancel_requested = False
-                        def publish_feedback(self, _): pass
+            if res or dets:
+                found_dets = res if res else dets
+                self.get_logger().info(
+                    f'[SVC] Sweep: gauge found tilt={tilt}')
+                self._pub_status('IBVS')
 
-                    class _FB:
-                        current_step = 'ibvs'
-                        current_object = 1
-                        ibvs_error_px = 0.0
+                class _DH:
+                    is_cancel_requested = False
+                    def publish_feedback(self, _): pass
 
-                    centred = self._ibvs(_DH(), pan, tilt, _FB(), 1)
-                    if centred:
-                        self._pub_status('CAPTURING')
-                        time.sleep(self.FOCUS_WAIT)
-                        conf = dets[0][6]
-                        paths = self._capture(
-                            self.IMAGES_PER_OBJ, obj_id=1,
-                            session_ts=session_ts, cls_name='gauge',
-                            conf_score=conf)
-                        ov = self._capture_insta_overview(
-                            session_ts, 'sweep_gauge', count=1,
-                            folder='inspection', obj_cls='gauge', obj_id=1)
-                        all_p = paths + ov
-                        self._mqtt(all_p, 1, session_ts=session_ts,
-                                   cls_name='gauge')
-                        return all_p
+                class _FB:
+                    current_step = 'ibvs'
+                    current_object = 1
+                    ibvs_error_px = 0.0
+
+                centred = self._ibvs(_DH(), cur_pan, cur_tilt, _FB(), 1)
+                if centred:
+                    self._pub_status('CAPTURING')
+                    time.sleep(self.FOCUS_WAIT)
+                    conf = found_dets[0][6] if found_dets else 0.3
+                    paths = self._capture(
+                        self.IMAGES_PER_OBJ, obj_id=1,
+                        session_ts=session_ts, cls_name='gauge',
+                        conf_score=conf)
+                    ov = self._capture_insta_overview(
+                        session_ts, 'sweep_gauge', count=1,
+                        folder='inspection', obj_cls='gauge', obj_id=1)
+                    all_p = paths + ov
+                    self._mqtt(all_p, 1, session_ts=session_ts, cls_name='gauge')
+                    return all_p
+
+            cur_pan = pan_end
 
         self.get_logger().warn('[SVC] Gauge sweep: not found')
         return []

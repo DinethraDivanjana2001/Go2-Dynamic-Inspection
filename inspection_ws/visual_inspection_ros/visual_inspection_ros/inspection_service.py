@@ -356,6 +356,38 @@ class InspectionService(IBVSActionServer):
         self.get_logger().warn('[SVC] Insta360 search timeout')
         return [], []
 
+    def _sweep_move(self, from_tilt, from_pan, to_tilt, to_pan,
+                    check_fn, check_cancel_fn):
+        """
+        Smoothly interpolate servo from (from_tilt,from_pan) to (to_tilt,to_pan).
+        Moves at SWEEP_DEG_PER_S deg/s, updates at SWEEP_INTERP_HZ Hz.
+        Checks for detections at SWEEP_CHECK_HZ Hz during motion.
+        Returns det list if something found, [] if reached target with nothing, None if cancelled.
+        """
+        total_deg = max(abs(to_pan - from_pan), abs(to_tilt - from_tilt), 1)
+        duration  = total_deg / self.SWEEP_DEG_PER_S
+        n_steps   = max(int(duration * self.SWEEP_INTERP_HZ), 1)
+        check_every = max(1, self.SWEEP_INTERP_HZ // self.SWEEP_CHECK_HZ)
+
+        for i in range(n_steps + 1):
+            if check_cancel_fn():
+                return None
+            t = i / n_steps
+            pan  = from_pan  + t * (to_pan  - from_pan)
+            tilt = from_tilt + t * (to_tilt - from_tilt)
+            self._servo(tilt, pan)
+
+            if i % check_every == 0:
+                dets, _, logi_dbg = self._detect_logi()
+                insta_f = self._get_insta()
+                self._publish_debug(insta_f, logi_dbg)
+                if dets:
+                    return dets
+
+            time.sleep(1.0 / self.SWEEP_INTERP_HZ)
+
+        return []
+
     def _gauge_sweep_svc(self, session_ts):
         """Gauge sweep scan (service context). Smooth serpentine.
         tilt=[40,70,100], pan=[20↔160]. Returns image paths or []."""

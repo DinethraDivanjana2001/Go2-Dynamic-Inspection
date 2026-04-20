@@ -19,11 +19,11 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            # Add only nodes that exist — add more as files are created
-            'camera_node         = visual_inspection_ros.camera_node:main',
-            'servo_node          = visual_inspection_ros.servo_node:main',
-            'ibvs_action_server  = visual_inspection_ros.ibvs_action_server:main',
-            'run_inspection_bt   = visual_inspection_ros.bt_nodes.inspection_bt_nodes:main',
+            'camera_node          = visual_inspection_ros.camera_node:main',
+            'servo_node           = visual_inspection_ros.servo_node:main',
+            'ibvs_action_server   = visual_inspection_ros.ibvs_action_server:main',
+            'inspection_service   = visual_inspection_ros.inspection_service:main',
+            'run_inspection_bt    = visual_inspection_ros.bt_nodes.inspection_bt_nodes:main',
         ],
     },
 )

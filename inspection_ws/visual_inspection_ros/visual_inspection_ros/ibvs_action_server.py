@@ -128,9 +128,9 @@ class IBVSActionServer(Node):
     # Per-class confidence thresholds
     # gauge is weak — lower threshold so we don't miss it
     CLASS_CONF = {
-        'extinguisher': 0.5,
+        'extinguisher': 0.7,
         'door':         0.5,
-        'person':       0.5,
+        'person':       0.6,
         'gauge':        0.3,
     }
     CONF_DEFAULT    = 0.5   # fallback for unknown classes

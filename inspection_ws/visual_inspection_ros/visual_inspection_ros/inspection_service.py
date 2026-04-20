@@ -120,7 +120,8 @@ class InspectionService(IBVSActionServer):
 
     def _run_inspection(self, request, response):
         """Core pipeline — same logic as execute_callback but for services."""
-        self._goal_active = True
+        self._goal_active    = True
+        self._pipeline_start = time.time()   # for pipeline_time_s in metadata.json
         session_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
 
         target_obj_raw = (request.target_object or '').strip()

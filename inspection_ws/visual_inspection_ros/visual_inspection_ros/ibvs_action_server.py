@@ -219,6 +219,10 @@ class IBVSActionServer(Node):
         self._ibvs_ey      = 0.0
         self._ibvs_iter    = 0
         self._ibvs_err     = 0.0
+        self._ibvs_time_s  = 0.0      # real wall-clock IBVS duration
+        self._ibvs_fps     = 0.0      # actual detection frames/s during IBVS
+        self._coarse_time_s= 0.0      # time for coarse servo move
+        self._pipeline_start = 0.0    # time.time() when inspection begins
         self._fps_counter  = 0
         self._fps_time     = time.time()
         self._fps          = 0.0
@@ -769,15 +773,15 @@ class IBVSActionServer(Node):
         last_seen_time = time.time()
         start_time     = time.time()
         ibvs_iter      = 0
-        insta_dbg_cache = None  # freeze Insta360 side during IBVS
+        n_det_frames   = 0                 # count frames where object was detected
+        insta_dbg_cache = None
 
-        # Cache last Insta360 debug frame
         _, _, _, insta_dbg_cache = self._detect_insta()
-
         deadline = start_time + self.IBVS_TOTAL_TIMEOUT
 
         while time.time() < deadline:
             if goal_handle.is_cancel_requested:
+                self._ibvs_time_s = time.time() - start_time
                 return False
 
             dets, _, logi_dbg = self._detect_logi()
@@ -788,19 +792,19 @@ class IBVSActionServer(Node):
             if not dets:
                 if now - last_seen_time > self.IBVS_LOST_PATIENCE:
                     self.get_logger().warn(f'  IBVS: object not seen for {now-last_seen_time:.1f}s -- aborting')
+                    self._ibvs_time_s = now - start_time
                     return False
                 self.get_logger().info(f'  IBVS: object not seen ({now-last_seen_time:.1f}s) -- waiting...')
                 time.sleep(dt)
                 continue
 
             last_seen_time = now
+            n_det_frames  += 1
 
-            # Filter to target class — IBVS only considers the requested object
             if self._target_class:
                 tc = self._target_class.lower()
                 dets = [d for d in dets if d[7].lower() == tc]
                 if not dets:
-                    # Target class not visible in Logitech right now
                     time.sleep(dt)
                     continue
 
@@ -809,7 +813,6 @@ class IBVSActionServer(Node):
             ey  = cy_d - self.CY_LOGI
             err = (ex**2 + ey**2) ** 0.5
 
-            # Update overlay state
             self._ibvs_ex   = ex
             self._ibvs_ey   = ey
             self._ibvs_iter = ibvs_iter
@@ -821,7 +824,12 @@ class IBVSActionServer(Node):
             goal_handle.publish_feedback(feedback)
 
             if err < self.IBVS_TOL_PX:
-                self.get_logger().info(f'  IBVS converged: err={err:.1f}px at iter {ibvs_iter}')
+                elapsed = time.time() - start_time
+                self._ibvs_time_s = elapsed
+                self._ibvs_fps    = round(n_det_frames / elapsed, 1) if elapsed > 0 else 0.0
+                self.get_logger().info(
+                    f'  IBVS converged: err={err:.1f}px at iter {ibvs_iter} '
+                    f'time={elapsed:.2f}s fps={self._ibvs_fps}')
                 return True
 
             # Angular errors
@@ -835,17 +843,14 @@ class IBVSActionServer(Node):
                 theta_y = 0.0
                 integral_tilt = 0.0
 
-            # PID pan
             integral_pan = np.clip(integral_pan + theta_x * dt, -50, 50)
             dp = -(self.KP*theta_x + self.KI*integral_pan + self.KD*(theta_x-prev_ep)/dt)
             prev_ep = theta_x
 
-            # PID tilt (negated for TILT_REVERSED servo mount)
             integral_tilt = np.clip(integral_tilt + theta_y * dt, -50, 50)
             dt_ = -(self.KP*theta_y + self.KI*integral_tilt + self.KD*(theta_y-prev_et)/dt)
             prev_et = theta_y
 
-            # Velocity limit
             sp = min(1.0, abs(ex)/self.SLOW_ZONE_PX)
             st = min(1.0, abs(ey)/self.SLOW_ZONE_PX)
             dp  = np.clip(dp,  -self.MAX_STEP_DEG*sp,  self.MAX_STEP_DEG*sp)
@@ -861,8 +866,12 @@ class IBVSActionServer(Node):
             ibvs_iter += 1
             time.sleep(dt)
 
-        self.get_logger().warn(f'  IBVS timeout after {self.IBVS_TOTAL_TIMEOUT}s')
+        elapsed = time.time() - start_time
+        self._ibvs_time_s = elapsed
+        self._ibvs_fps    = round(n_det_frames / elapsed, 1) if elapsed > 0 else 0.0
+        self.get_logger().warn(f'  IBVS timeout after {elapsed:.1f}s')
         return False
+
 
     # ---- Image capture (local save) ----------------------------------------
 
@@ -889,10 +898,7 @@ class IBVSActionServer(Node):
                 self.get_logger().info(f'  Saved {fpath.name}')
             time.sleep(self.CAPTURE_DELAY)
 
-        # ibvs_time estimated from iterations × ~0.066s per loop
-        ibvs_time_s = round(ibvs_iter * 0.066, 2)
-
-        # Save metadata — read by collect_dataset.py for evaluation CSV
+        # Real wall-clock ibvs_time_s (measured in _ibvs, not estimated)
         meta = {
             'class':            cls_name,
             'instance_id':      obj_id,
@@ -902,8 +908,12 @@ class IBVSActionServer(Node):
             'camera':           'logitech',
             'ibvs_converged':   ibvs_converged,
             'ibvs_error_px':    round(float(ibvs_err), 3),
-            'ibvs_time_s':      ibvs_time_s,
+            'ibvs_time_s':      round(float(self._ibvs_time_s), 3),
             'ibvs_iterations':  ibvs_iter,
+            'ibvs_fps':         round(float(self._ibvs_fps), 1),
+            'coarse_time_s':    round(float(self._coarse_time_s), 3),
+            'pipeline_time_s':  round(time.time() - self._pipeline_start, 2)
+                                if self._pipeline_start > 0 else 0.0,
         }
         meta_path = cap_dir / 'metadata.json'
         with open(meta_path, 'w') as f:

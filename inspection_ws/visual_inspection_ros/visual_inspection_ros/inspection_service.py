@@ -20,10 +20,10 @@ import threading
 import time
 from datetime import datetime
 
-from std_msgs.msg import Int16MultiArray, String, Image
+from std_msgs.msg import Int16MultiArray, String
+from sensor_msgs.msg import Image
 from geometry_msgs.msg import Point
 from cv_bridge import CvBridge
-from sensor_msgs.msg import Image as ImageMsg
 
 from visual_inspection_interfaces.srv import Inspect
 
@@ -54,17 +54,13 @@ class InspectionService(IBVSActionServer):
         self._frame_insta = None
         self._frame_logi  = None
 
-        from sensor_msgs.msg import Image as Img
-        from std_msgs.msg import Int16MultiArray, String
-        from geometry_msgs.msg import Point
-
-        self.create_subscription(Img, '/visual_inspection/insta360/image_raw',
+        self.create_subscription(Image, '/visual_inspection/insta360/image_raw',
                                  self._cb_insta, 10, callback_group=self.cb_group)
-        self.create_subscription(Img, '/visual_inspection/logitech/image_raw',
+        self.create_subscription(Image, '/visual_inspection/logitech/image_raw',
                                  self._cb_logi,  10, callback_group=self.cb_group)
 
         self.servo_pub      = self.create_publisher(Int16MultiArray, '/servo/pan_tilt', 10)
-        self.debug_pub      = self.create_publisher(Img,    '/visual_inspection/debug', 10)
+        self.debug_pub      = self.create_publisher(Image,  '/visual_inspection/debug', 10)
         self.status_pub     = self.create_publisher(String, '/visual_inspection/status', 10)
         self.ibvs_err_pub   = self.create_publisher(Point,  '/visual_inspection/ibvs_error', 10)
         self.detections_pub = self.create_publisher(String, '/visual_inspection/detections', 10)

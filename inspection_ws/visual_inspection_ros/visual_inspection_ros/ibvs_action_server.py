@@ -867,10 +867,10 @@ class IBVSActionServer(Node):
     # ---- Image capture (local save) ----------------------------------------
 
     def _capture(self, n=4, obj_id=1, session_ts='', cls_name='object',
-                 conf_score=0.0):
+                 conf_score=0.0, ibvs_err=0.0, ibvs_iter=0, ibvs_converged=False):
         """Capture n images from Logitech, save to inspection/ folder.
         Folder: captures/inspection/session_ts/cls_name/instance_N/
-        Also saves metadata.json with confidence score.
+        Saves metadata.json with confidence + IBVS stats for evaluation CSV.
         Returns list of saved file paths."""
         base = Path(os.path.expanduser(
             self._mqtt_cfg.get('capture_dir', '~/Documents/Visual_Inspection_ws/captures')
@@ -889,21 +889,32 @@ class IBVSActionServer(Node):
                 self.get_logger().info(f'  Saved {fpath.name}')
             time.sleep(self.CAPTURE_DELAY)
 
-        # Save metadata
+        # ibvs_time estimated from iterations × ~0.066s per loop
+        ibvs_time_s = round(ibvs_iter * 0.066, 2)
+
+        # Save metadata — read by collect_dataset.py for evaluation CSV
         meta = {
-            'class': cls_name,
-            'instance_id': obj_id,
-            'confidence': round(conf_score, 4),
-            'session': session_ts,
-            'num_images': len(paths),
-            'camera': 'logitech',
+            'class':            cls_name,
+            'instance_id':      obj_id,
+            'confidence':       round(conf_score, 4),
+            'session':          session_ts,
+            'num_images':       len(paths),
+            'camera':           'logitech',
+            'ibvs_converged':   ibvs_converged,
+            'ibvs_error_px':    round(float(ibvs_err), 3),
+            'ibvs_time_s':      ibvs_time_s,
+            'ibvs_iterations':  ibvs_iter,
         }
         meta_path = cap_dir / 'metadata.json'
         with open(meta_path, 'w') as f:
             json.dump(meta, f, indent=2)
-        self.get_logger().info(f'  Metadata saved: conf={conf_score:.4f}')
+        self.get_logger().info(
+            f'  Metadata saved: conf={conf_score:.4f} '
+            f'ibvs_converged={ibvs_converged} err={ibvs_err:.1f}px '
+            f'time={ibvs_time_s}s')
 
         return paths
+
 
     def _capture_insta_overview(self, session_ts, location_label, count=1,
                                  folder='inspection', obj_cls='', obj_id=1):
@@ -1242,7 +1253,10 @@ class IBVSActionServer(Node):
             # Capture 4 Logitech ROI images (include confidence in filename)
             paths = self._capture(self.IMAGES_PER_OBJ, obj_id=instance_num,
                                   session_ts=session_ts, cls_name=cls_name,
-                                  conf_score=conf)
+                                  conf_score=conf,
+                                  ibvs_err=self._ibvs_err,
+                                  ibvs_iter=self._ibvs_iter,
+                                  ibvs_converged=centred)
 
             # Also capture Insta360 overview with YOLO boxes
             overview_paths = self._capture_insta_overview(

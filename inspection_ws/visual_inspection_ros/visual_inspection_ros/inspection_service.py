@@ -260,7 +260,10 @@ class InspectionService(IBVSActionServer):
             paths = self._capture(
                 self.IMAGES_PER_OBJ, obj_id=instance_num,
                 session_ts=session_ts, cls_name=cls_name,
-                conf_score=conf)
+                conf_score=conf,
+                ibvs_err=self._ibvs_err,
+                ibvs_iter=self._ibvs_iter,
+                ibvs_converged=centred)
 
             ov_paths = self._capture_insta_overview(
                 session_ts, location_label, count=1,
@@ -309,7 +312,8 @@ class InspectionService(IBVSActionServer):
             session_ts, label, count=overview_count, folder='overview')
         logi_paths = self._capture(
             n=1, obj_id=1, session_ts=session_ts,
-            cls_name=label, conf_score=0.0)
+            cls_name=label, conf_score=0.0,
+            ibvs_converged=False, ibvs_err=0.0, ibvs_iter=0)
 
         all_paths = insta_paths + logi_paths
         self._mqtt(all_paths, 0, session_ts=session_ts, cls_name=label)
@@ -443,7 +447,10 @@ class InspectionService(IBVSActionServer):
         conf  = found_dets[0][6]
         paths = self._capture(self.IMAGES_PER_OBJ, obj_id=1,
                               session_ts=session_ts, cls_name='gauge',
-                              conf_score=conf)
+                              conf_score=conf,
+                              ibvs_err=self._ibvs_err,
+                              ibvs_iter=self._ibvs_iter,
+                              ibvs_converged=centred)
         ov    = self._capture_insta_overview(session_ts, 'sweep_gauge',
                                              count=1, folder='inspection',
                                              obj_cls='gauge', obj_id=1)

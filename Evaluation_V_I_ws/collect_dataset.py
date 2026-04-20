@@ -35,7 +35,8 @@ def prompt(q, d=''):
 # ── CSV ──────────────────────────────────────────────────────────────────────
 COLS = ['timestamp','folder','filename','object_type','distance_m',
         'angle_deg','angle_direction','occlusion_pct','n_objects',
-        'ibvs_time_s','final_error_px','converged','ground_truth_value','notes']
+        'ibvs_time_s','final_error_px','converged','detection_confidence',
+        'objects_inspected','ground_truth_value','notes']
 
 def init_log():
     EVAL.mkdir(parents=True, exist_ok=True)
@@ -62,14 +63,15 @@ def count_in(subfolder):
 def run_and_parse(target_object: str = '', location_label: str = 'eval'):
     """
     Call /visual_inspection/inspect via test_inspection_service.py.
-    Returns (img_path, ibvs_time, final_err, converged, objects_inspected, status).
-    Requires inspection_service running (T3).
+    After the run, reads metrics from metadata.json saved by the service.
+    Returns (img_path, ibvs_time, ibvs_err, converged, objects_inspected, status, conf).
     """
-    before = set()
+    before_meta = set()
+    before_imgs = set()
     if CAPTURES.exists():
-        before = {f for f in CAPTURES.rglob('img_*.jpg')}
+        before_meta = {f for f in CAPTURES.rglob('metadata.json')}
+        before_imgs = {f for f in CAPTURES.rglob('img_*.jpg')}
 
-    ibvs_time, final_err, converged = 0.0, 0.0, False
     objects_inspected = 0
     status = 'unknown'
     info(f'Calling service: object="{target_object or "any"}"  loc="{location_label}"')
@@ -88,13 +90,6 @@ def run_and_parse(target_object: str = '', location_label: str = 'eval'):
         for line in proc.stdout:
             l = line.strip()
             if l: print(f'     {l}')
-            m = re.search(r'IBVS converged.*err=([\d.]+)px.*iter\s+(\d+)', l)
-            if m:
-                final_err = float(m.group(1))
-                ibvs_time = round(int(m.group(2)) * 0.066, 1)
-                converged = True
-            if re.search(r'IBVS timeout', l):
-                converged = False; ibvs_time = 40.0
             m2 = re.search(r'objects_inspected\s*:\s*(\d+)', l)
             if m2: objects_inspected = int(m2.group(1))
             m3 = re.search(r'status\s*:\s*(\S+)', l)
@@ -108,17 +103,40 @@ def run_and_parse(target_object: str = '', location_label: str = 'eval'):
             except Exception: pass
 
     time.sleep(2)
-    new_paths = []
-    if CAPTURES.exists():
-        after = {f for f in CAPTURES.rglob('img_*.jpg')}
-        new_paths = sorted(after - before, key=lambda f: f.stat().st_mtime)
 
-    img_path = new_paths[0] if new_paths else None
-    if new_paths:
-        ok(f'Found {len(new_paths)} new image(s)')
+    # ── Read metrics from metadata.json (written by inspection_service) ───────
+    import json as _json
+    ibvs_time, ibvs_err, converged, conf = 0.0, 0.0, False, 0.0
+    new_imgs = []
+
+    if CAPTURES.exists():
+        after_meta = {f for f in CAPTURES.rglob('metadata.json')}
+        after_imgs = {f for f in CAPTURES.rglob('img_*.jpg')}
+        new_meta = after_meta - before_meta
+        new_imgs = sorted(after_imgs - before_imgs, key=lambda f: f.stat().st_mtime)
+
+        # Use newest metadata.json
+        if new_meta:
+            meta_f = max(new_meta, key=lambda f: f.stat().st_mtime)
+            try:
+                md = _json.loads(meta_f.read_text())
+                conf      = float(md.get('confidence', 0.0))
+                converged = bool(md.get('ibvs_converged', False))
+                ibvs_err  = float(md.get('ibvs_error_px', 0.0))
+                ibvs_time = float(md.get('ibvs_time_s', 0.0))
+            except Exception as e:
+                bad(f'metadata.json parse error: {e}')
+
+    img_path = new_imgs[0] if new_imgs else None
+    if new_imgs:
+        ok(f'Found {len(new_imgs)} image(s) | conf={conf:.3f} | '
+           f'ibvs_time={ibvs_time}s | err={ibvs_err:.1f}px | converged={converged}')
     else:
         bad('No new images — check inspection_service is running (T3)')
-    return img_path, ibvs_time, final_err, converged, objects_inspected, status
+
+    return img_path, ibvs_time, ibvs_err, converged, objects_inspected, status, conf
+
+
 
 
 def save_img(img_path, dest: Path, fname: str) -> bool:
@@ -148,13 +166,13 @@ def one_capture(dest: Path, fname_prefix: str, subfolder_name: str,
 
     input(f'\n  {W}▶  Ready? Press ENTER to capture...{X}')
     print()
-    img, ibvs_t, err_px, conv, n_insp, svc_status = run_and_parse(
+    img, ibvs_t, err_px, conv, n_insp, svc_status, det_conf = run_and_parse(
         target_object=obj_type, location_label=subfolder_name)
     saved = save_img(img, dest, fname)
 
-    if conv:  ok(f'IBVS:  converged in {ibvs_t}s  |  final error {err_px}px')
-    elif n_insp > 0: ok(f'Inspected {n_insp} object(s)  |  status={svc_status}')
-    else:     bad(f'IBVS:  DID NOT CONVERGE  (status={svc_status})')
+    if conv:  ok(f'IBVS: converged in {ibvs_t}s | error {err_px}px | conf={det_conf:.3f}')
+    elif n_insp > 0: ok(f'Inspected {n_insp} object(s) | status={svc_status} | conf={det_conf:.3f}')
+    else:     bad(f'IBVS: DID NOT CONVERGE (status={svc_status})')
 
     caption = ''
     if ask_caption:
@@ -164,6 +182,8 @@ def one_capture(dest: Path, fname_prefix: str, subfolder_name: str,
             distance_m=distance, angle_deg=angle_deg, angle_direction=angle_dir,
             occlusion_pct=occlusion, n_objects=n_objects,
             ibvs_time_s=ibvs_t, final_error_px=err_px, converged=conv,
+            detection_confidence=round(det_conf, 4),
+            objects_inspected=n_insp,
             ground_truth_value=ground_truth, notes=caption)
     ok(f'Logged  ({count_rows()} total so far)')
     return saved
@@ -324,16 +344,19 @@ def session_gauge():
             # use direct save
             input(f'\n  {W}▶  Ready? Press ENTER to capture...{X}')
             print()
-            img, ibvs_t, err_px, conv = run_and_parse()
+            img, ibvs_t, err_px, conv, _, _, det_conf = run_and_parse(
+                target_object='gauge', location_label=folder)
             if save_img(img, dest, fname):
-                if conv: ok(f'IBVS {ibvs_t}s | err {err_px}px')
+                if conv: ok(f'IBVS {ibvs_t}s | err {err_px}px | conf={det_conf:.3f}')
                 else:    bad('IBVS timeout')
             log_row(folder=folder, filename=fname, object_type='gauge',
                     distance_m=dist, angle_deg='0', angle_direction='center',
                     occlusion_pct='0', n_objects='1',
                     ibvs_time_s=ibvs_t, final_error_px=err_px, converged=conv,
+                    detection_confidence=round(det_conf, 4), objects_inspected=1,
                     ground_truth_value=true_val, notes=f'gauge={true_val}')
             ok(f'Logged ({count_rows()} total)')
+
 
         cont = prompt('Another reading? (y / q=menu','y').lower()
         if cont == 'q': break

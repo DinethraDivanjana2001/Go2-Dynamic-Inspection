@@ -906,6 +906,13 @@ class IBVSActionServer(Node):
             time.sleep(self.CAPTURE_DELAY)
 
         # Real wall-clock ibvs_time_s (measured in _ibvs, not estimated)
+        # Use getattr() fallbacks so stale __init__ on Jetson never causes AttributeError
+        _ibvs_time     = round(float(getattr(self, '_ibvs_time_s',    0.0)), 3)
+        _ibvs_fps      = round(float(getattr(self, '_ibvs_fps',       0.0)), 1)
+        _coarse_time   = round(float(getattr(self, '_coarse_time_s',  0.0)), 3)
+        _pipe_start    = getattr(self, '_pipeline_start', 0.0)
+        _pipeline_time = round(time.time() - _pipe_start, 2) if _pipe_start > 0 else 0.0
+
         meta = {
             'class':            cls_name,
             'instance_id':      obj_id,
@@ -915,13 +922,13 @@ class IBVSActionServer(Node):
             'camera':           'logitech',
             'ibvs_converged':   ibvs_converged,
             'ibvs_error_px':    round(float(ibvs_err), 3),
-            'ibvs_time_s':      round(float(self._ibvs_time_s), 3),
+            'ibvs_time_s':      _ibvs_time,
             'ibvs_iterations':  ibvs_iter,
-            'ibvs_fps':         round(float(self._ibvs_fps), 1),
-            'coarse_time_s':    round(float(self._coarse_time_s), 3),
-            'pipeline_time_s':  round(time.time() - self._pipeline_start, 2)
-                                if self._pipeline_start > 0 else 0.0,
+            'ibvs_fps':         _ibvs_fps,
+            'coarse_time_s':    _coarse_time,
+            'pipeline_time_s':  _pipeline_time,
         }
+
         meta_path = cap_dir / 'metadata.json'
         with open(meta_path, 'w') as f:
             json.dump(meta, f, indent=2)

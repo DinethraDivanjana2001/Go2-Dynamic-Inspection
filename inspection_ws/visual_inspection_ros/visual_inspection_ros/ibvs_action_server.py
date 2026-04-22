@@ -826,7 +826,14 @@ class IBVSActionServer(Node):
             if err < self.IBVS_TOL_PX:
                 elapsed = time.time() - start_time
                 self._ibvs_time_s = elapsed
-                self._ibvs_fps    = round(n_det_frames / elapsed, 1) if elapsed > 0 else 0.0
+                # ibvs_iter = number of PID loop steps completed
+                # n_det_frames = frames where object was detected (may be 0 on instant converge)
+                # Use ibvs_iter/elapsed as fps (more stable)
+                if elapsed > 0:
+                    self._ibvs_fps = round(
+                        (n_det_frames if n_det_frames > 0 else ibvs_iter) / elapsed, 1)
+                else:
+                    self._ibvs_fps = 0.0
                 self.get_logger().info(
                     f'  IBVS converged: err={err:.1f}px at iter {ibvs_iter} '
                     f'time={elapsed:.2f}s fps={self._ibvs_fps}')

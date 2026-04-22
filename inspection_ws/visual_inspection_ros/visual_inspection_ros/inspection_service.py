@@ -211,8 +211,9 @@ class InspectionService(IBVSActionServer):
         for obj_idx, det in enumerate(front_dets, 1):
             cx_obj, cy_obj, *_, conf, tid, cls_name, instance_num = det
 
-            # Coarse
+            # Coarse — timed
             self._pub_status('COARSE')
+            _coarse_t0 = time.time()
             pan_c  = calculate_pan(cx_obj, cy_obj)
             tilt_c = calculate_tilt(cx_obj, cy_obj)
             self._servo(tilt_c, pan_c)
@@ -220,6 +221,7 @@ class InspectionService(IBVSActionServer):
                 f'[SVC] Object {obj_idx}: [{cls_name}#{instance_num}] '
                 f'coarse pan={pan_c:.1f} tilt={tilt_c:.1f}')
             time.sleep(self.COARSE_WAIT)
+            self._coarse_time_s = round(time.time() - _coarse_t0, 3)
 
             # Wait for Logitech
             self._pub_status('IBVS')

@@ -928,7 +928,8 @@ class IBVSActionServer(Node):
         self.get_logger().info(
             f'  Metadata saved: conf={conf_score:.4f} '
             f'ibvs_converged={ibvs_converged} err={ibvs_err:.1f}px '
-            f'time={ibvs_time_s}s')
+            f'time={self._ibvs_time_s}s')
+
 
         return paths
 

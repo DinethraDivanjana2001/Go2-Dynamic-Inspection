@@ -219,10 +219,11 @@ class IBVSActionServer(Node):
         self._ibvs_ey      = 0.0
         self._ibvs_iter    = 0
         self._ibvs_err     = 0.0
-        self._ibvs_time_s  = 0.0      # real wall-clock IBVS duration
-        self._ibvs_fps     = 0.0      # actual detection frames/s during IBVS
-        self._coarse_time_s= 0.0      # time for coarse servo move
-        self._pipeline_start = 0.0    # time.time() when inspection begins
+        self._ibvs_time_s  = 0.0
+        self._ibvs_fps     = 0.0
+        self._coarse_time_s= 0.0
+        self._pipeline_start = 0.0
+        self._initial_ibvs_err = 0.0   # coarse accuracy: IBVS pixel error at iteration 0
         self._fps_counter  = 0
         self._fps_time     = time.time()
         self._fps          = 0.0
@@ -813,6 +814,10 @@ class IBVSActionServer(Node):
             ey  = cy_d - self.CY_LOGI
             err = (ex**2 + ey**2) ** 0.5
 
+            # Capture coarse accuracy — the error at the very first detection
+            if ibvs_iter == 0:
+                self._initial_ibvs_err = err
+
             self._ibvs_ex   = ex
             self._ibvs_ey   = ey
             self._ibvs_iter = ibvs_iter
@@ -907,9 +912,10 @@ class IBVSActionServer(Node):
 
         # Real wall-clock ibvs_time_s (measured in _ibvs, not estimated)
         # Use getattr() fallbacks so stale __init__ on Jetson never causes AttributeError
-        _ibvs_time     = round(float(getattr(self, '_ibvs_time_s',    0.0)), 3)
-        _ibvs_fps      = round(float(getattr(self, '_ibvs_fps',       0.0)), 1)
-        _coarse_time   = round(float(getattr(self, '_coarse_time_s',  0.0)), 3)
+        _ibvs_time     = round(float(getattr(self, '_ibvs_time_s',       0.0)), 3)
+        _ibvs_fps      = round(float(getattr(self, '_ibvs_fps',           0.0)), 1)
+        _coarse_time   = round(float(getattr(self, '_coarse_time_s',      0.0)), 3)
+        _initial_err   = round(float(getattr(self, '_initial_ibvs_err',   0.0)), 2)
         _pipe_start    = getattr(self, '_pipeline_start', 0.0)
         _pipeline_time = round(time.time() - _pipe_start, 2) if _pipe_start > 0 else 0.0
 
@@ -926,6 +932,7 @@ class IBVSActionServer(Node):
             'ibvs_iterations':  ibvs_iter,
             'ibvs_fps':         _ibvs_fps,
             'coarse_time_s':    _coarse_time,
+            'initial_ibvs_error_px': _initial_err,
             'pipeline_time_s':  _pipeline_time,
         }
 

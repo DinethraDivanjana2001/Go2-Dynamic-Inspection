@@ -35,7 +35,7 @@ def prompt(q, d=''):
 # ── CSV ──────────────────────────────────────────────────────────────────────
 COLS = ['timestamp','folder','filename','object_type','distance_m',
         'angle_deg','angle_direction','occlusion_pct','n_objects',
-        'ibvs_time_s','ibvs_fps','final_error_px','converged',
+        'ibvs_time_s','ibvs_fps','initial_error_px','final_error_px','converged',
         'coarse_time_s','pipeline_time_s',
         'detection_confidence','objects_inspected',
         'ground_truth_value','notes']
@@ -110,6 +110,7 @@ def run_and_parse(target_object: str = '', location_label: str = 'eval'):
     import json as _json
     ibvs_time, ibvs_err, converged, conf  = 0.0, 0.0, False, 0.0
     ibvs_fps, coarse_time, pipeline_time  = 0.0, 0.0, 0.0
+    initial_err = 0.0
     new_imgs = []
 
     if CAPTURES.exists():
@@ -122,24 +123,26 @@ def run_and_parse(target_object: str = '', location_label: str = 'eval'):
             meta_f = max(new_meta, key=lambda f: f.stat().st_mtime)
             try:
                 md = _json.loads(meta_f.read_text())
-                conf          = float(md.get('confidence',    0.0))
-                converged     = bool( md.get('ibvs_converged', False))
-                ibvs_err      = float(md.get('ibvs_error_px',  0.0))
-                ibvs_time     = float(md.get('ibvs_time_s',    0.0))
-                ibvs_fps      = float(md.get('ibvs_fps',       0.0))
-                coarse_time   = float(md.get('coarse_time_s',  0.0))
-                pipeline_time = float(md.get('pipeline_time_s',0.0))
+                conf          = float(md.get('confidence',           0.0))
+                converged     = bool( md.get('ibvs_converged',       False))
+                ibvs_err      = float(md.get('ibvs_error_px',        0.0))
+                ibvs_time     = float(md.get('ibvs_time_s',          0.0))
+                ibvs_fps      = float(md.get('ibvs_fps',             0.0))
+                coarse_time   = float(md.get('coarse_time_s',        0.0))
+                pipeline_time = float(md.get('pipeline_time_s',      0.0))
+                initial_err   = float(md.get('initial_ibvs_error_px',0.0))
             except Exception as e:
                 bad(f'metadata.json parse error: {e}')
 
     img_path = new_imgs[0] if new_imgs else None
     if new_imgs:
-        ok(f'conf={conf:.3f} | ibvs={ibvs_time:.2f}s | err={ibvs_err:.1f}px | '
+        ok(f'conf={conf:.3f} | coarse_err={initial_err:.1f}px | '
+           f'ibvs={ibvs_time:.2f}s | final_err={ibvs_err:.1f}px | '
            f'fps={ibvs_fps} | pipeline={pipeline_time:.1f}s | converged={converged}')
     else:
         bad('No new images — check inspection_service is running (T3)')
 
-    return img_path, ibvs_time, ibvs_err, converged, objects_inspected, status, conf, ibvs_fps, coarse_time, pipeline_time
+    return img_path, ibvs_time, ibvs_err, converged, objects_inspected, status, conf, ibvs_fps, coarse_time, pipeline_time, initial_err
 
 
 
@@ -171,12 +174,12 @@ def one_capture(dest: Path, fname_prefix: str, subfolder_name: str,
 
     input(f'\n  {W}▶  Ready? Press ENTER to capture...{X}')
     print()
-    img, ibvs_t, err_px, conv, n_insp, svc_status, det_conf, fps, coarse_t, pipe_t = run_and_parse(
+    img, ibvs_t, err_px, conv, n_insp, svc_status, det_conf, fps, coarse_t, pipe_t, init_err = run_and_parse(
         target_object=obj_type, location_label=subfolder_name)
     saved = save_img(img, dest, fname)
 
     if conv:
-        ok(f'IBVS: {ibvs_t:.2f}s | err={err_px:.1f}px | fps={fps} | pipeline={pipe_t:.1f}s | conf={det_conf:.3f}')
+        ok(f'IBVS: {ibvs_t:.2f}s | coarse={init_err:.1f}px→final={err_px:.1f}px | fps={fps} | pipeline={pipe_t:.1f}s | conf={det_conf:.3f}')
     elif n_insp > 0:
         ok(f'Inspected {n_insp} | status={svc_status} | conf={det_conf:.3f}')
     else:
@@ -189,7 +192,8 @@ def one_capture(dest: Path, fname_prefix: str, subfolder_name: str,
     log_row(folder=subfolder_name, filename=fname, object_type=obj_type,
             distance_m=distance, angle_deg=angle_deg, angle_direction=angle_dir,
             occlusion_pct=occlusion, n_objects=n_objects,
-            ibvs_time_s=round(ibvs_t,3), ibvs_fps=fps, final_error_px=round(err_px,2),
+            ibvs_time_s=round(ibvs_t,3), ibvs_fps=fps,
+            initial_error_px=round(init_err,2), final_error_px=round(err_px,2),
             converged=conv, coarse_time_s=round(coarse_t,3), pipeline_time_s=round(pipe_t,2),
             detection_confidence=round(det_conf,4), objects_inspected=n_insp,
             ground_truth_value=ground_truth, notes=caption)
@@ -352,15 +356,16 @@ def session_gauge():
             # use direct save
             input(f'\n  {W}▶  Ready? Press ENTER to capture...{X}')
             print()
-            img, ibvs_t, err_px, conv, _, _, det_conf, fps, coarse_t, pipe_t = run_and_parse(
+            img, ibvs_t, err_px, conv, _, _, det_conf, fps, coarse_t, pipe_t, init_err = run_and_parse(
                 target_object='gauge', location_label=folder)
             if save_img(img, dest, fname):
-                if conv: ok(f'IBVS {ibvs_t:.2f}s | err={err_px:.1f}px | fps={fps} | conf={det_conf:.3f}')
+                if conv: ok(f'IBVS {ibvs_t:.2f}s | coarse={init_err:.1f}px→final={err_px:.1f}px | fps={fps} | conf={det_conf:.3f}')
                 else:    bad('IBVS timeout')
             log_row(folder=folder, filename=fname, object_type='gauge',
                     distance_m=dist, angle_deg='0', angle_direction='center',
                     occlusion_pct='0', n_objects='1',
-                    ibvs_time_s=round(ibvs_t,3), ibvs_fps=fps, final_error_px=round(err_px,2),
+                    ibvs_time_s=round(ibvs_t,3), ibvs_fps=fps,
+                    initial_error_px=round(init_err,2), final_error_px=round(err_px,2),
                     converged=conv, coarse_time_s=round(coarse_t,3), pipeline_time_s=round(pipe_t,2),
                     detection_confidence=round(det_conf,4), objects_inspected=1,
                     ground_truth_value=true_val, notes=f'gauge={true_val}')

@@ -1,49 +1,46 @@
 # Behaviour Tree Integration Guide
 **Visual Inspection System — Jetson Orin Nano**
-*Updated: 2026-04-20 — Migrated from ROS2 Action → ROS2 Service*
 
 ---
 
-## Overview
+## 1. Overview
+The visual inspection pipeline exposes a single **ROS2 Service** for the Behavior Tree (BT) to interact with. 
 
-The inspection pipeline is exposed as a **ROS2 Service** (not an Action):
+**IMPORTANT FOR BT DEVELOPERS:** The visual inspection module is a ROS2 **Service** (not an Action). The BT simply triggers the service and waits until the inspection completes. 
 
-| | Old (Action) | New (Service) ✅ |
-|---|---|---|
-| Interface | `InspectObjects.action` | `Inspect.srv` |
-| Node | `ibvs_action_server` | `inspection_service` |
-| Endpoint | `/visual_inspection/inspect_objects` | `/visual_inspection/inspect` |
-| Feedback | Continuous (step/error/object) | None (blocks until done) |
-| Cancellation | Supported | Not needed (BT controls timing) |
-| BT integration | Complex (ActionClient) | Simple (ServiceClient) |
+**Service Name**: `/visual_inspection/inspect`
+**Service Type**: `visual_inspection_interfaces/srv/Inspect`
 
 ---
 
-## Service Interface
+## 2. Input: From Behavior Tree to Inspection System
 
-**Service name**: `/visual_inspection/inspect`
-**Service type**: `visual_inspection_interfaces/srv/Inspect`
+When the Behavior Tree reaches the Inspection Node, it must send the following request fields to the service:
 
-### Request Fields
-
-| Field | Type | Description |
+| Input Field | Type | What BT should provide |
 |---|---|---|
-| `target_object` | `string` | Object class to inspect (see table below) |
-| `location_label` | `string` | Location name from BT (e.g. `"engine_room_A"`) |
-| `max_objects` | `int32` | `0` = inspect all found, `N` = first N only |
-| `return_home` | `bool` | `true` = servo returns to 90°,90° when done |
+| `target_object` | `string` | What to inspect: `"fire_extinguisher"`, `"door"`, `"person"`, `"gauge"`, or `"unknown"` |
+| `location_label` | `string` | The current location on the map (e.g. `"engine_room_A"`). Used for naming saved folders. |
+| `max_objects` | `int32` | How many to inspect. Send `0` to inspect ALL objects of that type found in the area. |
+| `return_home` | `bool` | Send `true` so the camera resets its pan/tilt to center after finishing. |
 
-### Response Fields
+---
 
-| Field | Type | Description |
+## 3. Output: From Inspection System back to Behavior Tree
+
+When the inspection is complete, the Jetson will return the following response to the BT. 
+
+**IMPORTANT:** The images themselves and their metadata (JSON files containing confidence, convergence, errors, etc.) are saved on the Jetson's disk. The BT receives the **paths** to these images so it knows exactly where to find them and their metadata.
+
+| Output Field | Type | What BT receives |
 |---|---|---|
-| `success` | `bool` | `true` if ≥1 object inspected |
-| `status` | `string` | `"ok"` / `"no_detection"` / `"ibvs_timeout"` / `"all_in_back"` / `"no_frames"` / `"busy"` |
-| `objects_found` | `int32` | Objects detected on Insta360 |
-| `objects_inspected` | `int32` | Objects successfully centred + captured |
-| `object_in_back` | `bool` | `true` → BT should rotate robot 180° |
-| `image_paths` | `string[]` | Absolute paths to all saved images |
-| `info` | `string` | Human-readable summary |
+| `success` | `bool` | `true` if at least 1 object was successfully inspected and captured. |
+| `status` | `string` | Reason for completion: `"ok"`, `"no_detection"`, `"ibvs_timeout"`, `"all_in_back"`, `"no_frames"`, or `"busy"`. |
+| `objects_found` | `int32` | How many were spotted by the wide Insta360 camera. |
+| `objects_inspected` | `int32` | How many were actually focused on and successfully captured by the Logitech camera. |
+| `object_in_back` | `bool` | `true` means the object is behind the robot. The BT should read this and trigger a 180° rotation of the robot body, then try again. |
+| `image_paths` | `string[]` | **CRITICAL:** A list of absolute paths to the saved images. The BT or Server can use these paths to read the images. Every image folder also contains a `metadata.json` file with all the metrics (confidence, time taken, etc). |
+| `info` | `string` | Human-readable log summary string. |
 
 ---
 
@@ -249,6 +246,5 @@ python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py
 |---|---|
 | Service definition | `inspection_ws/visual_inspection_interfaces/srv/Inspect.srv` |
 | Service server | `inspection_ws/visual_inspection_ros/visual_inspection_ros/inspection_service.py` |
-| Action server (kept) | `inspection_ws/visual_inspection_ros/visual_inspection_ros/ibvs_action_server.py` |
 | Test client | `test_scripts/test_inspection_service.py` |
 | This doc | `inspection_ws/visual_inspection_ros/docs/BT_INTEGRATION_GUIDE.md` |

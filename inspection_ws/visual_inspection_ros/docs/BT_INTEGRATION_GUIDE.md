@@ -132,47 +132,99 @@ captures/
 
 ---
 
-## BT Leaf Node — Python (rclpy)
+## 4. Why Paths Instead of Images? (Architecture Note)
 
-```python
-from visual_inspection_interfaces.srv import Inspect
+You might wonder why the service returns `image_paths` instead of a `sensor_msgs/Image` array. 
+* **DDS Payload Limits**: Sending multiple uncompressed high-res images over a synchronous ROS2 Service response will often exceed DDS payload limits or cause severe network lag.
+* **BT Stability**: To ensure the Behavior Tree never freezes waiting for massive payloads, the heavy images are written instantly to disk. The BT only receives the lightweight file paths, allowing it to read them safely on its own time without blocking the ROS2 middleware.
 
-# Create client (once, in BT node __init__)
-self.client = self.create_client(Inspect, '/visual_inspection/inspect')
+---
 
-# Call service (in BT tick)
-req = Inspect.Request()
-req.target_object  = "fire_extinguisher"   # from BT blackboard
-req.location_label = "engine_room_A"
-req.max_objects    = 0                      # inspect all found
-req.return_home    = True
+## 5. C++ BehaviorTree Node Example (BehaviorTree.CPP)
 
-future = self.client.call_async(req)
-rclpy.spin_until_future_complete(self, future)
-res = future.result()
+If you are using **BehaviorTree.CPP** (standard with Nav2), here is a complete C++ Leaf Node that wraps the ROS2 Service. You can drop this directly into your BT architecture.
 
-if res.success:
-    # res.image_paths → list of saved images
-    # res.info        → summary string
-    return NodeStatus.SUCCESS
-elif res.object_in_back:
-    # Signal BT to rotate robot 180°
-    return NodeStatus.FAILURE
-else:
-    return NodeStatus.FAILURE
+```cpp
+#include <behaviortree_cpp_v3/action_node.h>
+#include <rclcpp/rclcpp.hpp>
+#include "visual_inspection_interfaces/srv/inspect.hpp"
+
+class InspectObjectNode : public BT::CoroActionNode
+{
+public:
+    InspectObjectNode(const std::string& name, const BT::NodeConfiguration& config)
+      : BT::CoroActionNode(name, config)
+    {
+        node_ = rclcpp::Node::make_shared("bt_inspect_client");
+        client_ = node_->create_client<visual_inspection_interfaces::srv::Inspect>("/visual_inspection/inspect");
+    }
+
+    // Define the inputs the BT XML will provide to this node
+    static BT::PortsList providedPorts()
+    {
+        return {
+            BT::InputPort<std::string>("target_object"),
+            BT::InputPort<std::string>("location_label")
+        };
+    }
+
+    BT::NodeStatus tick() override
+    {
+        std::string target_obj;
+        std::string location;
+        getInput("target_object", target_obj);
+        getInput("location_label", location);
+
+        auto request = std::make_shared<visual_inspection_interfaces::srv::Inspect::Request>();
+        request->target_object = target_obj;
+        request->location_label = location;
+        request->max_objects = 0;
+        request->return_home = true;
+
+        auto future = client_->async_send_request(request);
+        
+        // Yield to prevent BT from freezing while waiting
+        while (rclcpp::ok() && future.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready) {
+            setStatusRunningAndYield(); 
+        }
+
+        auto response = future.get();
+
+        if (response->success) {
+            // Success: inspection complete. Images are at response->image_paths
+            return BT::NodeStatus::SUCCESS;
+        } else if (response->object_in_back) {
+            // Signal BT to rotate robot 180!
+            return BT::NodeStatus::FAILURE; 
+        } else {
+            return BT::NodeStatus::FAILURE;
+        }
+    }
+
+private:
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Client<visual_inspection_interfaces::srv::Inspect>::SharedPtr client_;
+};
 ```
 
 ---
 
-## BT XML (BehaviorTree.CPP)
+## 6. BT XML Example (Navigation + Inspection)
+
+This is how the XML looks when hooking the inspection up to the navigation sequence:
 
 ```xml
-<Action ID="InspectObject"
-        service_name="/visual_inspection/inspect"
-        target_object="{target_object}"
-        location_label="{location_label}"
-        max_objects="0"
-        return_home="true" />
+<root main_tree_to_execute="MainTree">
+    <BehaviorTree ID="MainTree">
+        <Sequence name="NavigateAndInspect">
+            <!-- 1. Nav2 drives the robot to the gauge -->
+            <NavigateToPose pose="engine_room_A_waypoint" />
+            
+            <!-- 2. Trigger the Visual Inspection -->
+            <InspectObjectNode target_object="gauge" location_label="engine_room_A" />
+        </Sequence>
+    </BehaviorTree>
+</root>
 ```
 
 ---

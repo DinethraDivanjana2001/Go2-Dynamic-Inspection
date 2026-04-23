@@ -378,7 +378,7 @@ class InspectionService(IBVSActionServer):
         cur_pan    = 90
 
         def smooth_move(t0, p0, t1, p1):
-            """Move servo smoothly from (t0,p0) to (t1,p1). Returns dets if found."""
+            """Move servo smoothly from (t0,p0) to (t1,p1). Returns dets, end_t, end_p."""
             steps = max(int(max(abs(t1-t0), abs(p1-p0)) / SPEED * HZ), 1)
             for i, (t, p) in enumerate(zip(
                 np.linspace(t0, t1, steps+1),
@@ -389,9 +389,9 @@ class InspectionService(IBVSActionServer):
                     dets, _, dbg = self._detect_logi()
                     self._publish_debug(self._get_insta(), dbg)
                     if dets:
-                        return dets
+                        return dets, float(t), float(p)
                 time.sleep(1.0 / HZ)
-            return []
+            return [], float(t1), float(p1)
 
         waypoints = [
             (50, 20),
@@ -403,8 +403,7 @@ class InspectionService(IBVSActionServer):
         ]
 
         for wp_tilt, wp_pan in waypoints:
-            res = smooth_move(cur_tilt, cur_pan, wp_tilt, wp_pan)
-            cur_tilt, cur_pan = wp_tilt, wp_pan
+            res, cur_tilt, cur_pan = smooth_move(cur_tilt, cur_pan, wp_tilt, wp_pan)
             if res:
                 found_dets = res
                 break

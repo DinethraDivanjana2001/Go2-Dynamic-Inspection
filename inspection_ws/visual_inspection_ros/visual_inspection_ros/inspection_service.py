@@ -364,14 +364,11 @@ class InspectionService(IBVSActionServer):
         return [], []
 
     def _gauge_sweep_svc(self, session_ts):
-        """Smooth serpentine sweep for gauge using np.linspace.
-        tilt=[40,70,100], pan=[20↔160] — no separate helper needed."""
+        """Smooth sweep for gauge using waypoints."""
         import numpy as np
         self._mode = 'SWEEP'
-        self.get_logger().info('[SVC] Gauge sweep: tilt=[40,70,100] pan smooth 20↔160')
+        self.get_logger().info('[SVC] Gauge sweep: T50(20→160), T80(160→20), T110(50→130)')
 
-        TILTS    = [40, 70, 100]
-        PAN_MIN, PAN_MAX = 20, 160
         SPEED    = 40.0   # degrees per second
         HZ       = 30     # servo update rate
         CHK      = 3      # check detection every N steps
@@ -396,28 +393,23 @@ class InspectionService(IBVSActionServer):
                 time.sleep(1.0 / HZ)
             return []
 
-        # Move to start
-        smooth_move(cur_tilt, cur_pan, TILTS[0], PAN_MIN)
-        cur_tilt, cur_pan = TILTS[0], PAN_MIN
+        waypoints = [
+            (50, 20),
+            (50, 160),
+            (80, 160),
+            (80, 20),
+            (110, 50),
+            (110, 130)
+        ]
 
-        for idx, tilt in enumerate(TILTS):
-            pan_end = PAN_MAX if idx % 2 == 0 else PAN_MIN
-
-            # Tilt row move
-            res = smooth_move(cur_tilt, cur_pan, tilt, cur_pan)
-            cur_tilt = tilt
+        for wp_tilt, wp_pan in waypoints:
+            res = smooth_move(cur_tilt, cur_pan, wp_tilt, wp_pan)
+            cur_tilt, cur_pan = wp_tilt, wp_pan
             if res:
                 found_dets = res
                 break
-
-            # Pan sweep
-            res = smooth_move(cur_tilt, cur_pan, cur_tilt, pan_end)
-            cur_pan = pan_end
-            if res:
-                found_dets = res
-                break
-
-            # Final check at end of row
+            
+            # Final check at waypoint
             dets, _, dbg = self._detect_logi()
             self._publish_debug(self._get_insta(), dbg)
             if dets:

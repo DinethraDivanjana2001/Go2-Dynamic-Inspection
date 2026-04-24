@@ -23,6 +23,7 @@ setup(
             'servo_node           = visual_inspection_ros.servo_node:main',
             'ibvs_action_server   = visual_inspection_ros.ibvs_action_server:main',
             'inspection_service   = visual_inspection_ros.inspection_service:main',
+            'image_uploader       = visual_inspection_ros.image_uploader:main',
             'run_inspection_bt    = visual_inspection_ros.bt_nodes.inspection_bt_nodes:main',
         ],
     },

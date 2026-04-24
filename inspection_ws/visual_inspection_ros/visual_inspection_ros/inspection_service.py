@@ -140,6 +140,7 @@ class InspectionService(IBVSActionServer):
                                      target_obj_raw or location_label, ret_home)
 
         self._target_class = resolved
+        self._current_location_label = location_label   # used by sweep _capture()
         self.get_logger().info(
             f'[SVC] Inspect "{target_obj_raw}" → YOLO "{self._target_class}" '
             f'loc="{location_label}"')
@@ -266,7 +267,8 @@ class InspectionService(IBVSActionServer):
                 conf_score=conf,
                 ibvs_err=self._ibvs_err,
                 ibvs_iter=self._ibvs_iter,
-                ibvs_converged=centred)
+                ibvs_converged=centred,
+                location_label=location_label)
 
             ov_paths = self._capture_insta_overview(
                 session_ts, location_label, count=1,
@@ -316,7 +318,8 @@ class InspectionService(IBVSActionServer):
         logi_paths = self._capture(
             n=1, obj_id=1, session_ts=session_ts,
             cls_name=label, conf_score=0.0,
-            ibvs_converged=False, ibvs_err=0.0, ibvs_iter=0)
+            ibvs_converged=False, ibvs_err=0.0, ibvs_iter=0,
+            location_label=request.location_label or '')
 
         all_paths = insta_paths + logi_paths
         self._mqtt(all_paths, 0, session_ts=session_ts, cls_name=label)
@@ -444,7 +447,8 @@ class InspectionService(IBVSActionServer):
                               conf_score=conf,
                               ibvs_err=self._ibvs_err,
                               ibvs_iter=self._ibvs_iter,
-                              ibvs_converged=centred)
+                              ibvs_converged=centred,
+                              location_label=getattr(self, '_current_location_label', ''))
         ov    = self._capture_insta_overview(session_ts, 'sweep_gauge',
                                              count=1, folder='inspection',
                                              obj_cls='gauge', obj_id=1)

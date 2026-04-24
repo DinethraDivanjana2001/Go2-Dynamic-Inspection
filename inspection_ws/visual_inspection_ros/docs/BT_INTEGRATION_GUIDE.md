@@ -169,6 +169,7 @@ Every `instance_N/` folder contains a `metadata.json` alongside the images:
   "instance_id": 1,
   "confidence": 0.8887,
   "session": "20260424_120000",
+  "location_label": "engine_room_A",
   "num_images": 3,
   "camera": "logitech",
   "ibvs_converged": true,

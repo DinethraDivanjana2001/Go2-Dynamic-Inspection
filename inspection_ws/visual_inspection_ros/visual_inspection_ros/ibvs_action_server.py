@@ -888,7 +888,8 @@ class IBVSActionServer(Node):
     # ---- Image capture (local save) ----------------------------------------
 
     def _capture(self, n=4, obj_id=1, session_ts='', cls_name='object',
-                 conf_score=0.0, ibvs_err=0.0, ibvs_iter=0, ibvs_converged=False):
+                 conf_score=0.0, ibvs_err=0.0, ibvs_iter=0, ibvs_converged=False,
+                 location_label=''):
         """Capture n images from Logitech, save to inspection/ folder.
         Folder: captures/inspection/session_ts/cls_name/instance_N/
         Saves metadata.json with confidence + IBVS stats for evaluation CSV.
@@ -924,6 +925,7 @@ class IBVSActionServer(Node):
             'instance_id':      obj_id,
             'confidence':       round(conf_score, 4),
             'session':          session_ts,
+            'location_label':   location_label,
             'num_images':       len(paths),
             'camera':           'logitech',
             'ibvs_converged':   ibvs_converged,

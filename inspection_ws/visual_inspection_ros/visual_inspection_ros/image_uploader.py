@@ -31,7 +31,7 @@ class ImageUploaderNode(Node):
         # ── Laptop HTTP server URL ─────────────────────────────────────────
         # Default port 8888 — must match laptop_receiver.py
         # Override with:  --ros-args -p laptop_url:=http://192.168.X.X:8888/upload
-        self.declare_parameter('laptop_url', 'http://172.20.10.10:8888/upload')
+        self.declare_parameter('laptop_url', 'http://192.168.8.62:8888/upload')
         self.laptop_url = self.get_parameter('laptop_url').get_parameter_value().string_value
 
         # ── ROS2 Service ───────────────────────────────────────────────────

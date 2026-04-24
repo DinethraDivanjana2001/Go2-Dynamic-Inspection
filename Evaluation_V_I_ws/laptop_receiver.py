@@ -70,17 +70,21 @@ def upload():
 
     # ── Extract location_label from metadata.json (if present) ────────────────
     location_label = session_label   # default fallback
+    session_ts     = subfolder       # default fallback (e.g. "instance_1")
     if 'metadata.json' in collected:
         try:
             meta = json.loads(collected['metadata.json'].decode('utf-8'))
             location_label = meta.get('location_label', session_label) or session_label
             object_class   = meta.get('class', object_class)
+            # Use the session timestamp as the unique subfolder so repeated
+            # inspections at the same location never overwrite each other
+            session_ts     = meta.get('session', subfolder) or subfolder
         except Exception as e:
             print(f'[!] Could not parse metadata.json: {e}')
 
     # ── Build save path ───────────────────────────────────────────────────────
-    # received_captures/<location_label>/<object_class>/<subfolder>/
-    dest = SAVE_ROOT / location_label / object_class / subfolder
+    # received_captures/<location_label>/<object_class>/<session_timestamp>/
+    dest = SAVE_ROOT / location_label / object_class / session_ts
     dest.mkdir(parents=True, exist_ok=True)
 
     # ── Save all files ────────────────────────────────────────────────────────

@@ -46,7 +46,13 @@ def upload():
     """
     Receives files from the Jetson image_uploader node.
     Form fields:  session_label, subfolder, object_class
-    Files:        one or more files (images + metadata.json)
+    Files:        images + metadata.json
+
+    Folder structure on laptop:
+        received_captures/<location_label>/<object_class>/<subfolder>/
+
+    location_label is read directly from the metadata.json content.
+    Falls back to session_label form field if metadata.json not present.
     """
     session_label = request.form.get('session_label', 'unknown_session')
     subfolder     = request.form.get('subfolder',     'instance_1')
@@ -55,28 +61,47 @@ def upload():
     if not request.files:
         return jsonify({'success': False, 'info': 'No files in request'}), 400
 
-    # ── Build save path ───────────────────────────────────────────────────────
-    # received_captures/<session_label>/<object_class>/<subfolder>/
-    dest = SAVE_ROOT / session_label / object_class / subfolder
-    dest.mkdir(parents=True, exist_ok=True)
-
-    saved_files = []
+    # ── Collect all files in memory first so we can read metadata.json ────────
+    collected = {}
     for _, file in request.files.items(multi=True):
         if file.filename == '':
             continue
-        save_path = dest / file.filename
-        file.save(save_path)
-        saved_files.append(file.filename)
+        collected[file.filename] = file.read()
+
+    # ── Extract location_label from metadata.json (if present) ────────────────
+    location_label = session_label   # default fallback
+    if 'metadata.json' in collected:
+        try:
+            meta = json.loads(collected['metadata.json'].decode('utf-8'))
+            location_label = meta.get('location_label', session_label) or session_label
+            object_class   = meta.get('class', object_class)
+        except Exception as e:
+            print(f'[!] Could not parse metadata.json: {e}')
+
+    # ── Build save path ───────────────────────────────────────────────────────
+    # received_captures/<location_label>/<object_class>/<subfolder>/
+    dest = SAVE_ROOT / location_label / object_class / subfolder
+    dest.mkdir(parents=True, exist_ok=True)
+
+    # ── Save all files ────────────────────────────────────────────────────────
+    saved_files = []
+    for filename, data in collected.items():
+        save_path = dest / filename
+        save_path.write_bytes(data)
+        saved_files.append(filename)
 
     print(f'[✓] Saved {len(saved_files)} files → {dest}')
+    print(f'    Location: {location_label}  Class: {object_class}')
     print(f'    Files: {saved_files}')
 
     return jsonify({
-        'success':      True,
-        'saved_count':  len(saved_files),
-        'saved_to':     str(dest),
-        'files':        saved_files
+        'success':        True,
+        'saved_count':    len(saved_files),
+        'saved_to':       str(dest),
+        'location_label': location_label,
+        'files':          saved_files
     }), 200
+
 
 
 @app.route('/status', methods=['GET'])

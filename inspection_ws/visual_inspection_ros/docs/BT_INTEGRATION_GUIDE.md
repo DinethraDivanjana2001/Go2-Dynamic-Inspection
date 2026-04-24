@@ -4,47 +4,139 @@
 ---
 
 ## 1. Overview
-The visual inspection pipeline exposes a single **ROS2 Service** for the Behavior Tree (BT) to interact with. 
 
-**IMPORTANT FOR BT DEVELOPERS:** The visual inspection module is a ROS2 **Service** (not an Action). The BT simply triggers the service and waits until the inspection completes. 
+The visual inspection pipeline uses **two ROS2 Services** that the BT calls in sequence:
 
-**Service Name**: `/visual_inspection/inspect`
-**Service Type**: `visual_inspection_interfaces/srv/Inspect`
-
----
-
-## 2. Input: From Behavior Tree to Inspection System
-
-When the Behavior Tree reaches the Inspection Node, it must send the following request fields to the service:
-
-| Input Field | Type | What BT should provide |
+| Step | Service | What it does |
 |---|---|---|
-| `target_object` | `string` | What to inspect: `"fire_extinguisher"`, `"door"`, `"person"`, `"gauge"`, or `"unknown"` |
-| `location_label` | `string` | The current location on the map (e.g. `"engine_room_A"`). Used for naming saved folders. |
-| `max_objects` | `int32` | How many to inspect. Send `0` to inspect ALL objects of that type found in the area. |
-| `return_home` | `bool` | Send `true` so the camera resets its pan/tilt to center after finishing. |
+| 1 | `/visual_inspection/inspect` | Runs full inspection — detects, focuses, captures images, saves to Jetson disk |
+| 2 | `/visual_inspection/upload_images` | Reads those saved files, HTTP-POSTs them to your laptop on the same WiFi network |
+
+> **The BT always calls Step 1 first, then Step 2.** If Step 2 (upload) fails, the BT should retry Step 2 — no need to redo the inspection.
+
+**IMPORTANT FOR BT DEVELOPERS:** Both are ROS2 **Services** (not Actions). The BT calls each one and simply waits for a response. There is no continuous feedback stream.
 
 ---
 
-## 3. Output: From Inspection System back to Behavior Tree
+## 2. Full BT Flow (Inspect → Upload)
 
-When the inspection is complete, the Jetson will return the following response to the BT. 
+```
+BT navigates robot to waypoint (Nav2)
+   │
+   ▼
+BT calls /visual_inspection/inspect
+   │   sends: target_object="gauge", location_label="engine_room_A"
+   │
+   ▼
+Jetson runs inspection pipeline:
+   Insta360 detects object → Coarse servo move → IBVS fine focus → Capture 3 images
+   Images + metadata.json saved on Jetson disk
+   │
+   ▼
+Response back to BT:
+   success=True, image_paths=["/path/img_01.jpg", ...], status="ok"
+   │
+   ▼
+BT calls /visual_inspection/upload_images
+   │   sends: image_paths=[...], session_label="engine_room_A"
+   │
+   ▼
+Jetson reads files, HTTP-POSTs them to laptop at 192.168.8.244:8888
+   │
+   ▼
+Laptop saves:  received_captures/engine_room_A/gauge/instance_1/
+               ├── img_01_conf0.85.jpg
+               ├── img_02_conf0.85.jpg
+               ├── img_03_conf0.85.jpg
+               └── metadata.json
+   │
+   ▼
+Response back to BT:
+   success=True → BT continues to next waypoint
+   success=False → BT retries upload (no need to re-inspect)
+```
 
-**IMPORTANT:** The images themselves and their metadata (JSON files containing confidence, convergence, errors, etc.) are saved on the Jetson's disk. The BT receives the **paths** to these images so it knows exactly where to find them and their metadata.
+---
 
-| Output Field | Type | What BT receives |
+## 3. Service 1 — Inspect
+
+**Service**: `/visual_inspection/inspect`  
+**Type**: `visual_inspection_interfaces/srv/Inspect`
+
+### Request (BT → Jetson)
+
+| Field | Type | What to send |
 |---|---|---|
-| `success` | `bool` | `true` if at least 1 object was successfully inspected and captured. |
-| `status` | `string` | Reason for completion: `"ok"`, `"no_detection"`, `"ibvs_timeout"`, `"all_in_back"`, `"no_frames"`, or `"busy"`. |
-| `objects_found` | `int32` | How many were spotted by the wide Insta360 camera. |
-| `objects_inspected` | `int32` | How many were actually focused on and successfully captured by the Logitech camera. |
-| `object_in_back` | `bool` | `true` means the object is behind the robot. The BT should read this and trigger a 180° rotation of the robot body, then try again. |
-| `image_paths` | `string[]` | **CRITICAL:** A list of absolute paths to the saved images. The BT or Server can use these paths to read the images. Every image folder also contains a `metadata.json` file with all the metrics (confidence, time taken, etc). |
-| `info` | `string` | Human-readable log summary string. |
+| `target_object` | `string` | What to inspect: `"fire_extinguisher"`, `"door"`, `"person"`, `"gauge"`, `"unknown"` |
+| `location_label` | `string` | Location from BT map (e.g. `"engine_room_A"`). Used in folder names for tracking. |
+| `max_objects` | `int32` | `0` = inspect all found objects of that type |
+| `return_home` | `bool` | `true` = camera resets to center after done |
+
+### Response (Jetson → BT)
+
+| Field | Type | What BT receives |
+|---|---|---|
+| `success` | `bool` | `true` if ≥1 object was captured |
+| `status` | `string` | `"ok"` / `"no_detection"` / `"ibvs_timeout"` / `"all_in_back"` / `"no_frames"` / `"busy"` |
+| `objects_found` | `int32` | Objects spotted by Insta360 wide camera |
+| `objects_inspected` | `int32` | Objects successfully focused + captured by Logitech |
+| `object_in_back` | `bool` | If `true` → rotate robot 180° and retry |
+| `image_paths` | `string[]` | Absolute paths to saved images on Jetson disk. Pass these to the upload service. |
+| `info` | `string` | Human-readable summary |
+
+### Status Values
+
+| `status` | What BT should do |
+|---|---|
+| `"ok"` | Proceed to upload |
+| `"no_detection"` | Nothing found → navigate to next waypoint |
+| `"ibvs_timeout"` | IBVS didn't converge → move robot closer and retry |
+| `"all_in_back"` | Object is behind robot → rotate 180° and retry |
+| `"no_frames"` | Camera failure — check hardware |
+| `"busy"` | Another inspection running — wait and retry |
 
 ---
 
-## Target Object Classes
+## 4. Service 2 — Upload Images to Laptop
+
+**Service**: `/visual_inspection/upload_images`  
+**Type**: `visual_inspection_interfaces/srv/UploadImages`
+
+The Jetson reads each file from the paths the BT gives it, then HTTP-POSTs them to your laptop.
+
+### Request (BT → Jetson)
+
+| Field | Type | What to send |
+|---|---|---|
+| `image_paths` | `string[]` | The `image_paths` received from the inspect response |
+| `session_label` | `string` | Same `location_label` used in inspect — used as top folder on laptop |
+
+### Response (Jetson → BT)
+
+| Field | Type | What BT receives |
+|---|---|---|
+| `success` | `bool` | `true` if all files uploaded to laptop |
+| `info` | `string` | Human-readable result or error message |
+| `uploaded_count` | `int32` | How many files were sent |
+
+### About location_label / session tracking
+
+The `session_label` you send here (same as `location_label` in inspect) becomes the top-level folder on the laptop:
+
+```
+received_captures/
+└── engine_room_A/         ← your location_label / session_label
+    └── gauge/
+        └── instance_1/
+            ├── img_01_conf0.85.jpg
+            └── metadata.json   ← contains: confidence, ibvs_time_s, final_error_px, etc.
+```
+
+This is how you track which images came from which location.
+
+---
+
+## 5. Target Object Classes
 
 | `target_object` | Mode | Pipeline |
 |---|---|---|
@@ -55,94 +147,46 @@ When the inspection is complete, the Jetson will return the following response t
 | `"gauge"` | **Full IBVS + Sweep** | Same + serpentine sweep if Insta360 misses |
 | `"unknown"` | **Overview only** | Servo home → Insta360 raw + 1 Logitech image |
 | `"main_cylinder"` | **Overview only** | Same |
-| `""` or `"any"` | **All classes** | Detect all YOLO classes, inspect each |
-
-### YOLO Model Classes (yolov26s.engine)
-
-| ID | YOLO Name | Accepted `target_object` values |
-|---|---|---|
-| 0 | `door` | `"door"` |
-| 1 | `extinguisher` | `"fire_extinguisher"`, `"extinguisher"` |
-| 2 | `gauge` | `"gauge"`, `"pressure_gauge"` |
-| 3 | `person` | `"person"`, `"people"` |
-
-*`unknown` and `main_cylinder` are NOT YOLO classes → overview-only mode.*
 
 ### Confidence Thresholds (per class)
 
-| Class | Threshold | Reason |
-|---|---|---|
-| extinguisher | 0.5 | High confidence needed |
-| door | 0.5 | |
-| person | 0.5 | |
-| gauge | **0.3** | Gauge is visually weak — lower to avoid missing it |
-
----
-
-## Status Values
-
-| `status` | BT Action |
+| Class | Threshold |
 |---|---|
-| `"ok"` | Success — continue |
-| `"no_detection"` | Nothing found → navigate to next position |
-| `"ibvs_timeout"` | IBVS didn't converge → move closer |
-| `"all_in_back"` | Objects in back half → rotate robot 180° |
-| `"no_frames"` | Camera failure |
-| `"busy"` | Another inspection running — retry |
+| `fire_extinguisher` | > 0.5 |
+| `door` | > 0.5 |
+| `person` | > 0.6 |
+| `gauge` | > 0.3 (visually weaker) |
 
 ---
 
-## Gauge Special Case: Sweep Scan
+## 6. metadata.json — What is inside each captured folder
 
-If gauge is **not detected** on Insta360 after 8s:
-1. Servo does a **serpentine sweep**: tilt=[20, 50, 80]°, pan=[20→160]° (10° steps)
-2. Logitech checks for gauge at every position
-3. If found → **IBVS fires immediately** from that position (no coarse step)
-4. If not found after full sweep → `status="no_detection"`
+Every `instance_N/` folder contains a `metadata.json` alongside the images:
 
----
-
-## Object Numbering (Multiple Instances)
-
-When multiple same-class objects are detected (e.g. 2 gauges):
-- Numbered by **confidence** (highest = #1)
-- Inspected in order: #1 → #2 → ...
-- Each saved to its own folder with `metadata.json`
-
-### Capture Folder Structure
-```
-captures/
-├── inspection/20260420_120000/        ← full IBVS session
-│   ├── extinguisher/
-│   │   └── instance_1/
-│   │       ├── img_01_conf0.85.jpg   ← 3 Logitech ROI images
-│   │       ├── img_02_conf0.85.jpg
-│   │       ├── img_03_conf0.85.jpg
-│   │       ├── overview_engine_room_A_01.jpg  ← Insta360 raw
-│   │       └── metadata.json
-│   └── gauge/
-│       ├── instance_1/               ← highest confidence
-│       └── instance_2/               ← lower confidence
-└── overview/20260420_120100/         ← overview-only session
-    ├── overview_unknown_01.jpg       ← Insta360 raw
-    └── unknown/instance_1/
-        ├── img_01_conf0.00.jpg       ← 1 Logitech from home
-        └── metadata.json
+```json
+{
+  "class": "gauge",
+  "instance_id": 1,
+  "confidence": 0.8887,
+  "session": "20260424_120000",
+  "num_images": 3,
+  "camera": "logitech",
+  "ibvs_converged": true,
+  "ibvs_error_px": 7.62,
+  "ibvs_time_s": 4.626,
+  "ibvs_iterations": 45,
+  "ibvs_fps": 9.7,
+  "coarse_time_s": 2.004,
+  "initial_ibvs_error_px": 203.06,
+  "pipeline_time_s": 18.4
+}
 ```
 
 ---
 
-## 4. Why Paths Instead of Images? (Architecture Note)
+## 7. C++ BehaviorTree Node Examples (BehaviorTree.CPP)
 
-You might wonder why the service returns `image_paths` instead of a `sensor_msgs/Image` array. 
-* **DDS Payload Limits**: Sending multiple uncompressed high-res images over a synchronous ROS2 Service response will often exceed DDS payload limits or cause severe network lag.
-* **BT Stability**: To ensure the Behavior Tree never freezes waiting for massive payloads, the heavy images are written instantly to disk. The BT only receives the lightweight file paths, allowing it to read them safely on its own time without blocking the ROS2 middleware.
-
----
-
-## 5. C++ BehaviorTree Node Example (BehaviorTree.CPP)
-
-If you are using **BehaviorTree.CPP** (standard with Nav2), here is a complete C++ Leaf Node that wraps the ROS2 Service. You can drop this directly into your BT architecture.
+### Inspect Node
 
 ```cpp
 #include <behaviortree_cpp_v3/action_node.h>
@@ -155,50 +199,47 @@ public:
     InspectObjectNode(const std::string& name, const BT::NodeConfiguration& config)
       : BT::CoroActionNode(name, config)
     {
-        node_ = rclcpp::Node::make_shared("bt_inspect_client");
-        client_ = node_->create_client<visual_inspection_interfaces::srv::Inspect>("/visual_inspection/inspect");
+        node_   = rclcpp::Node::make_shared("bt_inspect_client");
+        client_ = node_->create_client<visual_inspection_interfaces::srv::Inspect>(
+                      "/visual_inspection/inspect");
     }
 
-    // Define the inputs the BT XML will provide to this node
     static BT::PortsList providedPorts()
     {
         return {
             BT::InputPort<std::string>("target_object"),
-            BT::InputPort<std::string>("location_label")
+            BT::InputPort<std::string>("location_label"),
+            BT::OutputPort<std::vector<std::string>>("image_paths")  // pass to upload node
         };
     }
 
     BT::NodeStatus tick() override
     {
-        std::string target_obj;
-        std::string location;
-        getInput("target_object", target_obj);
+        std::string target_obj, location;
+        getInput("target_object",  target_obj);
         getInput("location_label", location);
 
-        auto request = std::make_shared<visual_inspection_interfaces::srv::Inspect::Request>();
-        request->target_object = target_obj;
-        request->location_label = location;
-        request->max_objects = 0;
-        request->return_home = true;
+        auto req = std::make_shared<visual_inspection_interfaces::srv::Inspect::Request>();
+        req->target_object  = target_obj;
+        req->location_label = location;
+        req->max_objects    = 0;
+        req->return_home    = true;
 
-        auto future = client_->async_send_request(request);
-        
-        // Yield to prevent BT from freezing while waiting
-        while (rclcpp::ok() && future.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready) {
-            setStatusRunningAndYield(); 
+        auto future = client_->async_send_request(req);
+        while (rclcpp::ok() &&
+               future.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready) {
+            setStatusRunningAndYield();
         }
 
-        auto response = future.get();
-
-        if (response->success) {
-            // Success: inspection complete. Images are at response->image_paths
+        auto res = future.get();
+        if (res->success) {
+            setOutput("image_paths", res->image_paths);  // forward to upload node
             return BT::NodeStatus::SUCCESS;
-        } else if (response->object_in_back) {
-            // Signal BT to rotate robot 180!
-            return BT::NodeStatus::FAILURE; 
-        } else {
+        } else if (res->object_in_back) {
+            // BT should rotate robot 180° and retry
             return BT::NodeStatus::FAILURE;
         }
+        return BT::NodeStatus::FAILURE;
     }
 
 private:
@@ -207,96 +248,186 @@ private:
 };
 ```
 
----
+### Upload Node
 
-## 6. BT XML Example (Navigation + Inspection)
+```cpp
+#include "visual_inspection_interfaces/srv/upload_images.hpp"
 
-This is how the XML looks when hooking the inspection up to the navigation sequence:
+class UploadImagesNode : public BT::CoroActionNode
+{
+public:
+    UploadImagesNode(const std::string& name, const BT::NodeConfiguration& config)
+      : BT::CoroActionNode(name, config)
+    {
+        node_   = rclcpp::Node::make_shared("bt_upload_client");
+        client_ = node_->create_client<visual_inspection_interfaces::srv::UploadImages>(
+                      "/visual_inspection/upload_images");
+    }
 
-```xml
-<root main_tree_to_execute="MainTree">
-    <BehaviorTree ID="MainTree">
-        <Sequence name="NavigateAndInspect">
-            <!-- 1. Nav2 drives the robot to the gauge -->
-            <NavigateToPose pose="engine_room_A_waypoint" />
-            
-            <!-- 2. Trigger the Visual Inspection -->
-            <InspectObjectNode target_object="gauge" location_label="engine_room_A" />
-        </Sequence>
-    </BehaviorTree>
-</root>
+    static BT::PortsList providedPorts()
+    {
+        return {
+            BT::InputPort<std::vector<std::string>>("image_paths"),  // from inspect node
+            BT::InputPort<std::string>("session_label")
+        };
+    }
+
+    BT::NodeStatus tick() override
+    {
+        std::vector<std::string> paths;
+        std::string label;
+        getInput("image_paths",  paths);
+        getInput("session_label", label);
+
+        auto req = std::make_shared<visual_inspection_interfaces::srv::UploadImages::Request>();
+        req->image_paths   = paths;
+        req->session_label = label;
+
+        auto future = client_->async_send_request(req);
+        while (rclcpp::ok() &&
+               future.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready) {
+            setStatusRunningAndYield();
+        }
+
+        auto res = future.get();
+        return res->success ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+    }
+
+private:
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Client<visual_inspection_interfaces::srv::UploadImages>::SharedPtr client_;
+};
 ```
 
 ---
 
-## Running the Service
+## 8. BT XML Example (Navigate → Inspect → Upload)
+
+```xml
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="InspectAndUpload">
+
+      <!-- 1. Nav2 drives robot to waypoint -->
+      <NavigateToPose pose="engine_room_A_waypoint" />
+
+      <!-- 2. Visual inspection: saves images to Jetson disk, returns paths -->
+      <InspectObjectNode
+          target_object="gauge"
+          location_label="engine_room_A"
+          image_paths="{captured_paths}" />
+
+      <!-- 3. Upload those images to laptop via HTTP -->
+      <RetryUntilSuccessful num_attempts="3">
+        <UploadImagesNode
+            image_paths="{captured_paths}"
+            session_label="engine_room_A" />
+      </RetryUntilSuccessful>
+
+    </Sequence>
+  </BehaviorTree>
+</root>
+```
+
+> `{captured_paths}` is a BT Blackboard variable — the inspect node writes to it, the upload node reads from it.
+
+---
+
+## 9. Running Everything
+
+### On Jetson (4 terminals)
 
 ```bash
-# ── Every terminal needs this ──────────────────────────────────────
+# ── Paste in EVERY terminal ──────────────────────────────────────────────────
 source /opt/ros/humble/setup.bash
 source ~/Documents/Visual_Inspection_ws/inspection_ws/install/setup.bash
 
 # Terminal 1 — Cameras
 ros2 run visual_inspection_ros camera_node
 
-# Terminal 2 — Servo
+# Terminal 2 — Servo controller
 ros2 run visual_inspection_ros servo_node
 
-# Terminal 3 — Inspection service (replaces ibvs_action_server)
+# Terminal 3 — Inspection service (main pipeline)
 ros2 run visual_inspection_ros inspection_service
+
+# Terminal 4 — Image uploader (sends to laptop after inspection)
+ros2 run visual_inspection_ros image_uploader
+# Laptop IP is already set to 192.168.8.244:8888
+# Override if needed: --ros-args -p laptop_url:=http://<NEW_IP>:8888/upload
+```
+
+### On Laptop (1 terminal, connected to YasiruDEX WiFi)
+
+```bash
+pip install flask   # only needed once
+cd /home/dinethra/Jetson_orin_nano/Evaluation_V_I_ws
+python3 laptop_receiver.py
+# Starts listening on port 8888
+# Saves received files to: received_captures/<location_label>/<object>/<instance>/
 ```
 
 ---
 
-## Test Commands (Simulate BT — 7 classes)
+## 10. Testing — Simulate the Full BT Flow
+
+Run this **instead of** `test_inspection_service.py` when you want to test the full pipeline including HTTP upload:
 
 ```bash
+# On Jetson — after all 4 services are running:
 source /opt/ros/humble/setup.bash
 source ~/Documents/Visual_Inspection_ws/inspection_ws/install/setup.bash
 
-# 1. Fire Extinguisher
-python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object fire_extinguisher
+# Test gauge inspection + upload to laptop
+python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_bt_full_flow.py \
+    --object gauge --location engine_room_A
 
-# 2. Door
-python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object door
+# Test fire extinguisher
+python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_bt_full_flow.py \
+    --object fire_extinguisher --location corridor_B
 
-# 3. Person
-python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object person
+# What you should see:
+# ── STEP 1: Visual Inspection ──
+#   ✓ Inspection complete — image_paths=[...]
+# ── STEP 2: Upload Images to Laptop ──
+#   ✓ Upload complete — files at received_captures/engine_room_A/...
+# ── BT RESULT ──
+#   ✓ BT node → SUCCESS
+```
 
-# 4. Gauge (with sweep fallback if not found on Insta360)
+### Quick single-step tests (inspection only, no upload)
+
+```bash
+# Inspect only — does NOT upload to laptop
 python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object gauge
-
-# 5. Unknown (overview only — Insta360 + 1 Logitech at home)
-python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object unknown
-
-# 6. Main Cylinder (overview only)
-python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object main_cylinder
-
-# 7. All classes
-python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py
+python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object fire_extinguisher
+python3 ~/Documents/Visual_Inspection_ws/test_scripts/test_inspection_service.py --object door
 ```
 
 ---
 
-## Monitoring Topics (Optional — for debugging only)
+## 11. Monitoring Topics (Debugging only)
 
 | Topic | Type | Description |
 |---|---|---|
-| `/visual_inspection/debug` | `Image` | Side-by-side Insta360 + Logitech (RViz2) |
-| `/visual_inspection/status` | `String` | `IDLE` / `DETECTING` / `COARSE` / `IBVS` / `CAPTURING` / `OVERVIEW` / `SWEEP` |
+| `/visual_inspection/status` | `String` | `IDLE` / `DETECTING` / `COARSE` / `IBVS` / `CAPTURING` / `SWEEP` |
+| `/visual_inspection/debug` | `Image` | Side-by-side Insta360 + Logitech (view in RViz2) |
 | `/visual_inspection/ibvs_error` | `Point` | x/y pixel error during IBVS |
-| `/visual_inspection/detections` | `String` | JSON of detected objects |
+| `/visual_inspection/detections` | `String` | JSON of current detected objects |
 | `/servo/pan_tilt` | `Int16MultiArray` | `[tilt, pan]` servo angles |
 
-> **Note:** These topics are optional — only subscribe when debugging. During real deployment, skip RViz2 to save GPU/CPU resources.
+> Skip these topics during real deployment to save CPU/GPU resources.
 
 ---
 
-## File Locations
+## 12. File Locations
 
-| File | Path |
+| File | Purpose |
 |---|---|
-| Service definition | `inspection_ws/visual_inspection_interfaces/srv/Inspect.srv` |
-| Service server | `inspection_ws/visual_inspection_ros/visual_inspection_ros/inspection_service.py` |
-| Test client | `test_scripts/test_inspection_service.py` |
-| This doc | `inspection_ws/visual_inspection_ros/docs/BT_INTEGRATION_GUIDE.md` |
+| `visual_inspection_interfaces/srv/Inspect.srv` | Service 1 definition |
+| `visual_inspection_interfaces/srv/UploadImages.srv` | Service 2 definition |
+| `visual_inspection_ros/inspection_service.py` | Service 1 server (Jetson) |
+| `visual_inspection_ros/image_uploader.py` | Service 2 server (Jetson) |
+| `Evaluation_V_I_ws/laptop_receiver.py` | HTTP receiver (runs on laptop) |
+| `test_scripts/test_bt_full_flow.py` | Full BT flow test (inspect + upload) |
+| `test_scripts/test_inspection_service.py` | Inspect-only test |

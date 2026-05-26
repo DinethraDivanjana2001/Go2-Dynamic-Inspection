@@ -14,7 +14,7 @@ def segment_gauge_needle(image, model_path='best.pt'):
     model = YOLO(model_path)  # load model
 
     results = model.predict(
-        image)  # run inference, detects gauge face and needle
+        image, conf=0.1)  # low conf so faint needles are not missed
 
     # get list of detected boxes, already sorted by confidence
     try:

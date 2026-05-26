@@ -3,6 +3,15 @@ import os
 import logging
 import time
 import json
+import torch
+
+# Workaround for PyTorch 2.6+ weights_only default change causing Ultralytics to fail
+original_torch_load = torch.load
+def patched_torch_load(*args, **kwargs):
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return original_torch_load(*args, **kwargs)
+torch.load = patched_torch_load
 
 import cv2
 import numpy as np
@@ -379,81 +388,7 @@ def process_image(image, detection_model_path, key_point_model_path,
 
     logging.info("Finish OCR")
 
-    # ------------------Decimal Point Detection-------------------------
-
-    if debug:
-        print("-------------------")
-        print("Decimal Point Detection")
-
-    logging.info("Start decimal point detection")
-
-    # Import decimal detection modules
-    from decimal_point_detection import (
-        NumberROIExtractor,
-        DecimalPointDetector,
-        apply_decimal_correction
-    )
-
-    # Extract ROIs from number labels
-    roi_extractor = NumberROIExtractor(
-        proximity_threshold=1.5,
-        padding_ratio=0.3,
-        min_roi_size=10
-    )
-
-    roi_results = roi_extractor.extract_number_rois(
-        image=cropped_resized_img,
-        ocr_results=number_labels,
-        group_adjacent=False,  # Extract individual number labels
-        debug=debug
-    )
-
-    # Detect decimal points in ROIs
-    decimal_detector = DecimalPointDetector(
-        min_dot_area=3,
-        max_dot_area=100,
-        circularity_threshold=0.4,
-        position_threshold=0.3
-    )
-
-    decimal_results = decimal_detector.analyze_roi_batch(
-        roi_results['rois'],
-        roi_results['roi_info'],
-        debug=False  # Set to True for decimal detection debug images
-    )
-
-    # Apply decimal corrections to number labels
-    decimal_count = 0
-    for idx, decimal_result in enumerate(decimal_results):
-        if decimal_result['has_decimal'] and idx < len(number_labels):
-            # Get original OCR value
-            original_value = number_labels[idx].number
-            
-            # Apply decimal correction (divide by 10)
-            corrected_value = apply_decimal_correction(
-                str(int(original_value)), 
-                has_decimal=True
-            )
-            
-            if corrected_value is not None:
-                number_labels[idx].number = corrected_value
-                decimal_count += 1
-                
-                if debug:
-                    print(f"  Decimal detected in '{int(original_value)}' -> corrected to {corrected_value}")
-
-    if debug:
-        if decimal_count > 0:
-            print(f"Applied decimal correction to {decimal_count} number(s)")
-        else:
-            print("No decimal points detected")
-
-    # Save ROI extraction visualization if debug mode
-    if debug and roi_results['visualization'] is not None:
-        roi_vis_path = os.path.join(run_path, "decimal_rois_visualization.png")
-        cv2.imwrite(roi_vis_path, roi_results['visualization'])
-
-    logging.info("Finish decimal point detection")
+    # Decimal point detection removed — OCR values used as-is
 
     # ------------------Segmentation-------------------------
 
@@ -653,7 +588,10 @@ def main():
                       debug=args.debug,
                       eval_mode=args.eval)
     elif os.path.isdir(input_path):
+        valid_exts = {'.jpg', '.jpeg', '.png', '.bmp'}
         for image_name in os.listdir(input_path):
+            if not any(image_name.lower().endswith(ext) for ext in valid_exts):
+                continue
             img_path = os.path.join(input_path, image_name)
             run_path = os.path.join(base_path, image_name)
             try:

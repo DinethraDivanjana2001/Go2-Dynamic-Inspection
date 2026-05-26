@@ -97,7 +97,7 @@ def main():
     parser.add_argument(
         "--object-type",
         required=True,
-        choices=["door", "fire_extinguisher", "emergency_exit", "main_cylinder", "unknown"],
+        choices=["door", "fire_extinguisher", "emergency_exit", "main_cylinder", "unknown", "person"],
         help="Object type for VLM inspection"
     )
     parser.add_argument(

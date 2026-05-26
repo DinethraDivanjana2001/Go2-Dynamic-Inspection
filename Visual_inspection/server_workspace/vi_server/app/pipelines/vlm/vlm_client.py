@@ -1,4 +1,3 @@
-"""VLM client abstraction for different providers."""
 
 import base64
 import json
@@ -60,6 +59,8 @@ class StubVLMClient(VLMClient):
             task = "emergency_exit"
         elif "cylinder" in user_prompt.lower() or "oil" in user_prompt.lower():
             task = "main_cylinder"
+        elif "ppe" in user_prompt.lower() or "helmet" in user_prompt.lower() or "person" in user_prompt.lower():
+            task = "person"
         
         # Return task-specific stub response
         stub_responses = {
@@ -110,6 +111,26 @@ class StubVLMClient(VLMClient):
                 ],
                 "evidence": {"oil_leak": False},
                 "extracted_objects": ["cylinder", "floor"]
+            },
+            "person": {
+                "task": "person",
+                "decision": "FAIL",
+                "confidence": 0.80,
+                "summary": "[STUB] Person detected but PPE compliance cannot be confirmed.",
+                "findings": [
+                    "Person visible in image",
+                    "Safety helmet not clearly visible",
+                    "Gloves status unclear",
+                    "Safety jacket/hi-vis vest not detected"
+                ],
+                "evidence": {
+                    "person_detected": True,
+                    "helmet_worn": False,
+                    "gloves_worn": None,
+                    "jacket_worn": False,
+                    "ppe_compliant": False
+                },
+                "extracted_objects": ["person"]
             },
             "unknown": {
                 "task": "unknown",
@@ -306,6 +327,7 @@ class GoogleGeminiVLMClient(VLMClient):
         try:
             from PIL import Image
             import google.generativeai as genai
+            # Removed local import of json to avoid UnboundLocalError
             
             # Load image
             img = Image.open(image_path)
@@ -314,15 +336,34 @@ class GoogleGeminiVLMClient(VLMClient):
             full_prompt = f"{system_prompt}\n\n{user_prompt}"
             
             # Call API
-            response = self.model.generate_content([full_prompt, img])
+            # Enable JSON mode for Gemini 1.5/2.0+
+            generation_config = {"response_mime_type": "application/json"}
+            response = self.model.generate_content(
+                [full_prompt, img], 
+                generation_config=generation_config
+            )
             content = response.text
             
             logger.debug(f"Gemini response: {content[:200]}...")
             
             # Validate JSON
             try:
-                json.loads(content)
-                return content
+                # Helper function to remove trailing commas which are common in LLM JSON
+                def clean_json_string(s):
+                    import re
+                    # Remove trailing commas inside objects/arrays
+                    s = re.sub(r',\s*\}', '}', s)
+                    s = re.sub(r',\s*\]', ']', s)
+                    return s
+
+                try:
+                    json.loads(content)
+                    return content
+                except json.JSONDecodeError:
+                    content = clean_json_string(content)
+                    json.loads(content)
+                    return content
+
             except json.JSONDecodeError:
                 # Try to extract JSON from markdown code blocks
                 import re

@@ -191,7 +191,8 @@ except Exception as e:
             }
         
         # Extract reading and unit
-        reading = pipeline_result.get("value")
+        # pipeline.py line 604 returns: {"value": reading, "unit": unit}
+        reading = pipeline_result.get("value")   # ← "value" not "reading"
         unit = pipeline_result.get("unit")
         
         # Estimate confidence (default for successful reading)

@@ -159,3 +159,13 @@ desktop.ini
 build/
 dist/
 *.egg-info/
+
+# Microsoft Office temp/lock files
+~$*
+
+# ===============================
+# Markdown files (local only)
+# Only README.md is allowed in the repo
+# ===============================
+*.md
+!README.md

@@ -8,13 +8,28 @@ from pydantic import BaseModel, Field, field_validator
 class VLMEvidence(BaseModel):
     """Evidence dictionary with flexible fields based on task type."""
     
-    # Common evidence fields (task-specific)
+    # Fire extinguisher fields
     blocked: Optional[bool] = None
-    open: Optional[bool] = None
-    oil_leak: Optional[bool] = None
     present: Optional[bool] = None
-    
-    # Allow additional fields
+
+    # Door fields
+    open: Optional[bool] = None
+
+    # Main cylinder fields
+    oil_leak: Optional[bool] = None
+    spill_visible: Optional[bool] = None
+
+    # Person / PPE fields
+    person_detected: Optional[bool] = None
+    helmet_worn: Optional[bool] = None
+    gloves_worn: Optional[bool] = None
+    jacket_worn: Optional[bool] = None
+    ppe_compliant: Optional[bool] = None
+
+    # Unknown / auto-detect fields
+    identified_object: Optional[str] = None
+
+    # Allow any extra fields Gemini may add
     class Config:
         extra = "allow"
 

@@ -1,5 +1,6 @@
 from torch import nn
 import torch
+import os
 
 ENCODER_MODEL_NAME = 'dinov2_vits14'
 
@@ -9,13 +10,25 @@ INPUT_SIZE = (448, 448)
 
 DINO_CHANNELS = 384
 
+# Local cache path — avoids GitHub network call on every run
+_DINOV2_LOCAL = os.path.join(
+    os.path.expanduser("~"), ".cache", "torch", "hub",
+    "facebookresearch_dinov2_main"
+)
 
 class Encoder(nn.Module):
     def __init__(self, pretrained=True):
         super().__init__()
-        self.model = torch.hub.load('facebookresearch/dinov2',
-                                    ENCODER_MODEL_NAME,
-                                    pretrained=pretrained)
+        if os.path.isdir(_DINOV2_LOCAL):
+            # Use cached local copy — no network needed
+            self.model = torch.hub.load(_DINOV2_LOCAL,
+                                        ENCODER_MODEL_NAME,
+                                        pretrained=pretrained,
+                                        source='local')
+        else:
+            self.model = torch.hub.load('facebookresearch/dinov2',
+                                        ENCODER_MODEL_NAME,
+                                        pretrained=pretrained)
         self.model.eval()
         for param in self.model.parameters():
             param.requires_grad = False

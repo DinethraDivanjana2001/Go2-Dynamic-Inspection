@@ -1,97 +1,39 @@
-"""Application settings and configuration management."""
+"""Application settings — loaded from environment variables or .env file."""
 
+import os
 from pathlib import Path
-from typing import List
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+# Load .env file if it exists (simple manual loader, no dependency needed)
+_env_path = Path(__file__).parent.parent / ".env"
+if _env_path.exists():
+    for line in _env_path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, val = line.partition("=")
+            os.environ.setdefault(key.strip(), val.strip())
 
 
-class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
-
-    # Database
-    database_url: str = Field(
-        default="sqlite+aiosqlite:///./data/vi_server.db",
-        description="Database connection URL"
-    )
-
-    # Storage
-    storage_root: Path = Field(
-        default=Path("./data/jobs"),
-        description="Root directory for job file storage"
-    )
-    max_upload_size_mb: int = Field(
-        default=10,
-        description="Maximum upload size in megabytes"
-    )
+class Settings:
+    # VLM
+    vlm_provider: str = os.getenv("VLM_PROVIDER", "stub")
+    vlm_api_key:  str = os.getenv("VLM_API_KEY", "")
+    vlm_model:    str = os.getenv("VLM_MODEL", "gpt-4o")
 
     # Server
-    server_host: str = Field(
-        default="0.0.0.0",
-        description="Server bind host"
-    )
-    server_port: int = Field(
-        default=8000,
-        description="Server bind port"
-    )
-    log_level: str = Field(
-        default="INFO",
-        description="Logging level"
-    )
+    server_host: str = os.getenv("SERVER_HOST", "0.0.0.0")
+    server_port: int = int(os.getenv("SERVER_PORT", "8000"))
+    log_level:   str = os.getenv("LOG_LEVEL", "INFO")
 
-    # Object Types
-    allowed_object_types: str = Field(
-        default="gauge,door,fire_extinguisher,unknown,emergency_exit,main_cylinder",
-        description="Allowed object types for processing (comma-separated)"
-    )
-    
-    def get_allowed_types(self) -> List[str]:
-        """Get allowed object types as a list."""
-        if isinstance(self.allowed_object_types, str):
-            return [t.strip() for t in self.allowed_object_types.split(',')]
-        return self.allowed_object_types
+    # Cloud DB (used by cloud_uploader.py)
+    cloud_db_url: str = os.getenv("CLOUD_DB_URL", "")
 
-    # Job Processing
-    max_queue_size: int = Field(
-        default=1000,
-        description="Maximum job queue size"
-    )
-    worker_poll_interval: float = Field(
-        default=0.1,
-        description="Worker polling interval in seconds"
-    )
-
-    # VLM Configuration
-    vlm_provider: str = Field(
-        default="stub",
-        description="VLM provider: 'stub' (offline testing) or 'openai'"
-    )
-    vlm_api_key: str = Field(
-        default="",
-        description="API key for VLM provider (required for openai)"
-    )
-    vlm_model: str = Field(
-        default="gpt-4o",
-        description="VLM model name (e.g., gpt-4o, gpt-4-vision-preview)"
-    )
+    # Allowed object types
+    allowed_object_types: list = [
+        t.strip() for t in
+        os.getenv("ALLOWED_OBJECT_TYPES",
+                  "gauge,door,fire_extinguisher,unknown,emergency_exit,main_cylinder,person"
+                  ).split(",")
+    ]
 
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore"
-    )
-
-    def get_job_dir(self, job_id: str) -> Path:
-        """Get the directory path for a specific job."""
-        return self.storage_root / job_id
-
-    def get_roi_path(self, job_id: str, filename: str = "roi.jpg") -> Path:
-        """Get the ROI image path for a specific job."""
-        return self.get_job_dir(job_id) / filename
-
-
-# Global settings instance
 settings = Settings()

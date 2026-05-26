@@ -19,6 +19,22 @@ logger = logging.getLogger(__name__)
 # Cache for loaded prompts
 _PROMPT_CACHE: Dict[str, PromptConfig] = {}
 
+# Alias map — normalises any variant name the Jetson might send to the correct prompt file
+_TASK_ALIASES: Dict[str, str] = {
+    "extinguisher":       "fire_extinguisher",
+    "fire extinguisher":  "fire_extinguisher",
+    "fire-extinguisher":  "fire_extinguisher",
+    "exit":               "emergency_exit",
+    "emergency exit":     "emergency_exit",
+    "emergency-exit":     "emergency_exit",
+    "cylinder":           "main_cylinder",
+    "main cylinder":      "main_cylinder",
+    "hydraulic":          "main_cylinder",
+    "human":              "person",
+    "people":             "person",
+    "worker":             "person",
+}
+
 
 def load_prompt_config(task_name: str) -> PromptConfig:
     """
@@ -89,6 +105,12 @@ def run_vlm_task(
     logger.info(f"Running VLM task: object_type={object_type}, roi_path={roi_path}")
     
     metadata = metadata or {}
+
+    # Normalise object_type using alias map
+    normalised = _TASK_ALIASES.get(object_type.lower().strip(), object_type.lower().strip())
+    if normalised != object_type:
+        logger.info(f"Alias resolved: '{object_type}' → '{normalised}'")
+        object_type = normalised
     
     try:
         # Verify image exists

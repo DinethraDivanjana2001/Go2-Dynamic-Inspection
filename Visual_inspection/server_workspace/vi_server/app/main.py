@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db, init_db
 from app.models import Job
 from app.queue_worker import job_queue
-from app.routes_location import router as location_router
 from app.schemas import (
     HealthResponse,
     JobAcceptedResponse,
@@ -37,18 +35,6 @@ app = FastAPI(
     description="Backend server for robot visual inspection system",
     version="0.1.0",
 )
-
-# Add CORS middleware to allow browser UI to connect
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for local development
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Include location management routes
-app.include_router(location_router)
 
 
 @app.on_event("startup")
